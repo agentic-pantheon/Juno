@@ -24,10 +24,13 @@ or inner dict (nested mode).
 from __future__ import annotations
 
 import json
+import logging
+import time
 import uuid
 from typing import Any, Literal
 
 import httpx
+from langsmith import traceable
 
 from juno.assistants.protocol import (
     AssistantTurnAgentError,
@@ -35,6 +38,37 @@ from juno.assistants.protocol import (
     AssistantTurnResult,
     parse_mercury_body,
 )
+from juno.logging_config import get_trace_id
+
+logger = logging.getLogger(__name__)
+
+
+def _intent_kind_from_payload(payload: dict[str, Any]) -> str | None:
+    intent = payload.get("intent")
+    if isinstance(intent, dict) and intent.get("kind") is not None:
+        return str(intent.get("kind"))
+    return None
+
+
+def _response_to_result(response: httpx.Response) -> AssistantTurnResult:
+    if response.status_code >= 400:
+        return _map_http_error(response)
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        return AssistantTurnAgentError(
+            message="Response body was not valid JSON",
+            code="invalid_json",
+            details={"body_snippet": _body_snippet(response.text)},
+        )
+    if not isinstance(data, dict):
+        return AssistantTurnAgentError(
+            message="Mercury JSON root must be an object",
+            code="invalid_shape",
+            details={"got_type": type(data).__name__},
+        )
+    return parse_mercury_body(data)
+
 
 def _json_body_for_request(
     payload: dict[str, Any],
@@ -119,6 +153,16 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None = None,
     ) -> AssistantTurnResult:
+        return _traced_mercury_run_turn(self, payload, idempotency_key=idempotency_key)
+
+    def _execute_sync_turn(
+        self,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str | None,
+    ) -> AssistantTurnResult:
+        tid = get_trace_id()
+        kind = _intent_kind_from_payload(payload)
         url = f"{self.base_url}{self._http_path}"
         body = _json_body_for_request(
             payload,
@@ -127,25 +171,28 @@ class MercuryAssistantRunner:
         )
         rid = str(uuid.uuid4()) if self._send_x_request_id else None
         headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
+        logger.info(
+            "phase=mercury_http_start trace_id=%s path=%s x_request_id=%s intent_kind=%s idempotency=%s",
+            tid,
+            self._http_path,
+            rid,
+            kind,
+            idempotency_key is not None,
+        )
+        t0 = time.perf_counter()
         with httpx.Client(timeout=self.timeout_s, transport=self._transport) as client:
             response = client.post(url, json=body, headers=headers)
-        if response.status_code >= 400:
-            return _map_http_error(response)
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            return AssistantTurnAgentError(
-                message="Response body was not valid JSON",
-                code="invalid_json",
-                details={"body_snippet": _body_snippet(response.text)},
-            )
-        if not isinstance(data, dict):
-            return AssistantTurnAgentError(
-                message="Mercury JSON root must be an object",
-                code="invalid_shape",
-                details={"got_type": type(data).__name__},
-            )
-        return parse_mercury_body(data)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        result = _response_to_result(response)
+        rkind = getattr(result, "kind", type(result).__name__)
+        logger.info(
+            "phase=mercury_http_end trace_id=%s duration_ms=%.1f http_status=%s result_kind=%s",
+            tid,
+            elapsed_ms,
+            response.status_code,
+            rkind,
+        )
+        return result
 
     async def arun_turn(
         self,
@@ -153,6 +200,8 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None = None,
     ) -> AssistantTurnResult:
+        tid = get_trace_id()
+        kind = _intent_kind_from_payload(payload)
         url = f"{self.base_url}{self._http_path}"
         body = _json_body_for_request(
             payload,
@@ -161,25 +210,37 @@ class MercuryAssistantRunner:
         )
         rid = str(uuid.uuid4()) if self._send_x_request_id else None
         headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
+        logger.info(
+            "phase=mercury_http_async_start trace_id=%s path=%s x_request_id=%s intent_kind=%s",
+            tid,
+            self._http_path,
+            rid,
+            kind,
+        )
+        t0 = time.perf_counter()
         async with httpx.AsyncClient(timeout=self.timeout_s, transport=self._transport) as client:
             response = await client.post(url, json=body, headers=headers)
-        if response.status_code >= 400:
-            return _map_http_error(response)
-        try:
-            data = response.json()
-        except json.JSONDecodeError:
-            return AssistantTurnAgentError(
-                message="Response body was not valid JSON",
-                code="invalid_json",
-                details={"body_snippet": _body_snippet(response.text)},
-            )
-        if not isinstance(data, dict):
-            return AssistantTurnAgentError(
-                message="Mercury JSON root must be an object",
-                code="invalid_shape",
-                details={"got_type": type(data).__name__},
-            )
-        return parse_mercury_body(data)
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        result = _response_to_result(response)
+        rkind = getattr(result, "kind", type(result).__name__)
+        logger.info(
+            "phase=mercury_http_async_end trace_id=%s duration_ms=%.1f http_status=%s result_kind=%s",
+            tid,
+            elapsed_ms,
+            response.status_code,
+            rkind,
+        )
+        return result
+
+
+@traceable(run_type="tool", name="mercury_http")
+def _traced_mercury_run_turn(
+    runner: MercuryAssistantRunner,
+    payload: dict[str, Any],
+    *,
+    idempotency_key: str | None = None,
+) -> AssistantTurnResult:
+    return runner._execute_sync_turn(payload, idempotency_key=idempotency_key)
 
 
 __all__ = ["MercuryAssistantRunner"]

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import time
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,9 @@ from langgraph.graph.state import CompiledStateGraph
 
 from juno.agents.registry import SubagentSpec
 from juno.agents.state import CustomAgentState
+from juno.logging_config import get_trace_id
+
+logger = logging.getLogger(__name__)
 
 _ENV_SUPERVISOR_PROMPT_PATH = "JUNO_SUPERVISOR_PROMPT_PATH"
 _DEFAULT_SUPERVISOR_PROMPT_REL = Path("config") / "juno.supervisor.md"
@@ -104,6 +109,21 @@ def _create_subagent_tool(spec: SubagentSpec) -> BaseTool:
 
     @tool(spec.name, description=spec.description)
     def _delegate(request: str, runtime: ToolRuntime) -> str:
+        tid = get_trace_id()
+        preview = request if len(request) <= 200 else request[:200] + "…"
+        logger.info(
+            "phase=subagent_delegate_start trace_id=%s subagent=%s request_len=%s",
+            tid,
+            spec.name,
+            len(request),
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "phase=subagent_delegate_preview trace_id=%s subagent=%s preview=%r",
+                tid,
+                spec.name,
+                preview,
+            )
         st = runtime.state
         sub_msgs: list[Any] = [HumanMessage(content=request)]
         if resume is not None and st.get("approval_response") is not None:
@@ -112,7 +132,16 @@ def _create_subagent_tool(spec: SubagentSpec) -> BaseTool:
         for key in keys:
             if key in st and st[key] is not None:
                 sub_input[key] = st[key]
-        out = graph.invoke(sub_input, runtime.config)
+        t0 = time.perf_counter()
+        try:
+            out = graph.invoke(sub_input, runtime.config)
+        finally:
+            logger.info(
+                "phase=subagent_delegate_end trace_id=%s subagent=%s duration_ms=%.1f",
+                tid,
+                spec.name,
+                (time.perf_counter() - t0) * 1000.0,
+            )
         msgs = out.get("messages", [])
         return _final_ai_content(msgs)
 
