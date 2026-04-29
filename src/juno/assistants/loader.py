@@ -19,6 +19,9 @@ class AssistantManifest(BaseModel):
     base_url_env: str
     system_prompt: str
     requires_session_fields: list[str] = Field(default_factory=list)
+    #: Optional path (must start with ``/``) for GET ``{base_url}{guide_path}`` injected
+    #: before the first model call in that sub-agent run (e.g. Mercury invoke guide).
+    guide_path: str | None = None
     prompt_md_path: str | None = None
     #: Filled by :func:`discover_assistants` when a Markdown file is present—not from YAML.
     instructions_md: str | None = None

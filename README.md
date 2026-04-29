@@ -17,6 +17,12 @@ Juno discovers every `assistants/*.yaml` manifest, but **only Mercury is wired t
 
 2. **Sub-agent graph** — Implement something like `build_<agent>_subagent(...)` under `src/juno/agents/` (pattern: `build_mercury_subagent`). It should return a compiled LangGraph agent whose tools talk to your backend.
 
+   **Remote invoke guide (optional)** — If your backend exposes a GET endpoint with markdown or prose the model must read *before* it calls tools (same idea as Mercury’s `/v1/mercury/invoke/guide`):
+
+   - Set **`guide_path`** on the manifest (absolute path on that assistant’s base URL, e.g. `/v1/mercury/invoke/guide`). Omit it to disable the hook.
+   - In `build_<agent>_subagent`, after you have an HTTP client scoped to the assistant base URL, pass LangChain middleware from **`juno.agents.build_remote_invoke_guide_middleware`**: give it a zero-argument callable that performs the GET and returns the response body as text (Mercury uses `MercuryAssistantRunner.fetch_get_text(guide_path)`).
+   - Pass the returned middleware in **`create_agent(..., middleware=(...))`** alongside your tools. The hook runs **`before_model`**: it injects one system message the first time the model runs in that sub-agent `invoke`, and **skips** further GETs once any `ToolMessage` is in the thread (later steps in the same invoke reuse the injected guide).
+
 3. **Register in the factory** — In [`src/juno/runtime/factory.py`](src/juno/runtime/factory.py), extend `build_subagent_specs` so that for each manifest you care about (or each `runner` value), you build the subgraph and append a [`SubagentSpec`](src/juno/agents/registry.py): a **unique** `name` (supervisor tool name), `description` (what the model sees), `graph`, `state_keys` to forward from session state (e.g. `user_id`, `wallet_id`, `chain`, `approval_response`), optional `resume_instruction` after human-in-the-loop, and `supports_wallet_approval_ui=True` **only** if the Telegram Approve/Decline flow applies.
 
 4. **Base URL** — Prefer `os.environ[manifest.base_url_env]` via `resolve_assistant_base_url`. If you need a Pydantic fallback like Mercury’s `MERCURY_BASE_URL`, extend [`resolve_assistant_base_url`](src/juno/runtime/factory.py) and add fields to [`Settings`](src/juno/settings.py) as needed.

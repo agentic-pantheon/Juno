@@ -3,6 +3,8 @@
 runner: mercury
 base_url_env: MERCURY_BASE_URL
 
+guide_path: /v1/mercury/invoke/guide
+
 system_prompt: ""
 
 # Session fields required before invoking tools (placeholder; loaders will enforce later)

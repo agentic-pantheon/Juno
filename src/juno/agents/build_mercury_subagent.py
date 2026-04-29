@@ -11,6 +11,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 
 from juno.agents.mercury_payload import turn_result_to_tool_text
+from juno.agents.remote_guide_middleware import build_remote_invoke_guide_middleware
 from juno.agents.state import CustomAgentState
 from juno.assistants.loader import AssistantManifest
 from juno.assistants.mercury_runner import MercuryAssistantRunner
@@ -137,11 +138,17 @@ def build_mercury_subagent(
         result = runner.run_turn(payload, idempotency_key=idempotency_key)
         return turn_result_to_tool_text(result)
 
+    guide_path = (manifest.guide_path or "").strip()
+    middleware: tuple[Any, ...] = ()
+    if guide_path:
+        middleware = (build_remote_invoke_guide_middleware(lambda: runner.fetch_get_text(guide_path)),)
+
     return create_agent(
         model=model,
         tools=[mercury_invoke],
         system_prompt=full_system,
         state_schema=CustomAgentState,
+        middleware=middleware,
         checkpointer=None,
     )
 

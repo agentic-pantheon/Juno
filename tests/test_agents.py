@@ -97,6 +97,70 @@ def test_mercury_invoke_tool_surfaces_agent_reply() -> None:
     assert body.get("wallet_id") == "primary"
 
 
+def test_mercury_subagent_fetches_invoke_guide_once_before_tool_round() -> None:
+    captured: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append((request.method, request.url.path))
+        if request.method == "GET" and request.url.path == "/v1/mercury/invoke/guide":
+            return httpx.Response(200, text="# Guide\nKinds and fields…")
+        if request.method == "POST":
+            return httpx.Response(200, json={"agent_reply": "Mercury ok"})
+        return httpx.Response(404)
+
+    runner = MercuryAssistantRunner(
+        "https://mercury.test",
+        transport=httpx.MockTransport(handler),
+        http_path="/v1/mercury/invoke",
+        request_body_mode="flat",
+    )
+    manifest = AssistantManifest(
+        runner="mercury",
+        base_url_env="X",
+        system_prompt="Specialist",
+        guide_path="/v1/mercury/invoke/guide",
+    )
+
+    intent = json.dumps({"kind": "native_balance", "wallet_address": "0x123"})
+    responses = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "mercury_invoke",
+                    "args": {"intent_json": intent},
+                    "id": "call-guide-1",
+                    "type": "tool_call",
+                }
+            ],
+        ),
+        AIMessage(content="wrapped up."),
+    ]
+    model = FakeMessagesListChatModelWithTools(responses=responses)
+    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+
+    out = sub.invoke({"messages": [HumanMessage("user task")]}, _thread_config())
+
+    get_guide_hits = sum(
+        1 for method, path in captured if method == "GET" and path == "/v1/mercury/invoke/guide"
+    )
+    assert get_guide_hits == 1
+    post_hits = [p for m, p in captured if m == "POST"]
+    assert len(post_hits) == 1
+    assert post_hits[0] == "/v1/mercury/invoke"
+
+    sys_guides = [
+        m
+        for m in out["messages"]
+        if getattr(m, "type", None) == "system" and "juno:remote_invoke_guide" in str(m.content)
+    ]
+    assert len(sys_guides) == 1
+    assert "Kinds and fields" in str(sys_guides[0].content)
+
+    tool_contents = [m.content for m in out["messages"] if m.type == "tool"]
+    assert any("Mercury ok" in str(c) for c in tool_contents)
+
+
 def test_supervisor_two_step_mercury_path() -> None:
     sub_intent = json.dumps({"kind": "erc20_balance", "chain": "base", "token_address": "0xt", "wallet_address": "0xw"})
     sub_responses = [

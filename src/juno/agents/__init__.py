@@ -1,6 +1,7 @@
 """Supervisor and sub-agents built with create_agent (LangGraph)."""
 
 from juno.agents.build_mercury_subagent import build_mercury_subagent
+from juno.agents.remote_guide_middleware import build_remote_invoke_guide_middleware
 from juno.agents.build_supervisor import (
     build_supervisor,
     compose_supervisor_system_prompt,
@@ -18,6 +19,7 @@ __all__ = [
     "CustomAgentState",
     "SubagentSpec",
     "build_mercury_subagent",
+    "build_remote_invoke_guide_middleware",
     "build_supervisor",
     "compose_supervisor_system_prompt",
     "default_mercury_subagent_spec",
