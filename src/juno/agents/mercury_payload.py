@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+from juno.approval_markers import JUNO_WALLET_APPROVAL_UI_MARKER
 from juno.assistants.protocol import (
     AssistantTurnAgentError,
     AssistantTurnHttpError,
@@ -45,7 +46,7 @@ def turn_result_to_tool_text(result: AssistantTurnResult) -> str:
             "POST /v1/mercury/invoke with approval_response (1Claw-backed signer)."
         )
         parts.append(" ".join(hint_parts))
-        return "\n".join(parts)
+        return f"{JUNO_WALLET_APPROVAL_UI_MARKER}\n" + "\n".join(parts)
     if isinstance(result, AssistantTurnAgentError):
         line = f"Agent error: {result.message}"
         if result.code:

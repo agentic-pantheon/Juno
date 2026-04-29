@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from juno.telegram.approval_ui import (
+    assistant_promises_inline_approval_ui,
+    conversation_needs_approval_ui,
+    should_show_wallet_approval_keyboard,
+)
 from juno.telegram.parsing import (
     extract_approval_correlation_id,
     extract_approval_token,
@@ -42,24 +47,32 @@ def test_extract_approval_correlation_id_prefers_idem() -> None:
 
 
 def test_conversation_needs_approval_mercury_phrases() -> None:
-    from juno.telegram.bot import _conversation_needs_approval_ui
-
-    assert _conversation_needs_approval_ui("Human approval is required for ERC20 transfers.")
-    assert _conversation_needs_approval_ui('{"status": "approval_required"}')
-    assert not _conversation_needs_approval_ui("Transfer complete.")
+    assert conversation_needs_approval_ui("Human approval is required for ERC20 transfers.")
+    assert conversation_needs_approval_ui('{"status": "approval_required"}')
+    assert not conversation_needs_approval_ui("Transfer complete.")
 
 
 def test_assistant_promises_inline_approval_ui() -> None:
-    from juno.telegram.bot import _assistant_promises_inline_approval_ui
-
-    assert _assistant_promises_inline_approval_ui(
+    assert assistant_promises_inline_approval_ui(
         "Please tap the **Approve** button in the approval prompt that appeared in this chat.",
     )
-    assert not _assistant_promises_inline_approval_ui("No approval needed for this read.")
+    assert not assistant_promises_inline_approval_ui("No approval needed for this read.")
 
 
 def test_should_show_mercury_approval_keyboard_heuristic() -> None:
-    from juno.telegram.bot import _should_show_mercury_approval_keyboard
+    names = frozenset({"mercury"})
+    assert should_show_wallet_approval_keyboard("", "Tap the Approve button in this chat.", names)
+    assert not should_show_wallet_approval_keyboard("", "Here is your balance: 1 USDC.", names)
+    assert not should_show_wallet_approval_keyboard(
+        "Wallet approval required.",
+        "",
+        frozenset(),
+    )
 
-    assert _should_show_mercury_approval_keyboard("", "Tap the Approve button in this chat.")
-    assert not _should_show_mercury_approval_keyboard("", "Here is your balance: 1 USDC.")
+
+def test_should_show_wallet_approval_keyboard_structured_marker() -> None:
+    from juno.approval_markers import JUNO_WALLET_APPROVAL_UI_MARKER
+
+    names = frozenset({"mercury"})
+    assert should_show_wallet_approval_keyboard(f"{JUNO_WALLET_APPROVAL_UI_MARKER}\n", "", names)
+    assert should_show_wallet_approval_keyboard("", "", frozenset()) is False

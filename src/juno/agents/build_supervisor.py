@@ -1,4 +1,4 @@
-"""Juno supervisor agent that delegates to the Mercury sub-agent via a tool."""
+"""Juno supervisor agent that delegates to specialist sub-agents via tools."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
+from juno.agents.registry import SubagentSpec
 from juno.agents.state import CustomAgentState
 
 _ENV_SUPERVISOR_PROMPT_PATH = "JUNO_SUPERVISOR_PROMPT_PATH"
@@ -70,15 +71,6 @@ def compose_supervisor_system_prompt(base: str, tools: Sequence[BaseTool]) -> st
     return f"{base_stripped}\n\n{tool_block}".strip()
 
 
-_SUBAGENT_RESUME_AFTER_APPROVAL = (
-    "Session already includes `approval_response` from Telegram (human approved). "
-    "Call `mercury_invoke` now with `intent_json` that is IDENTICAL to your previous "
-    "mercury_invoke for this operation: same `kind`, fields, amounts, addresses, and the "
-    "same `idempotency_key` inside the intent as before. Do not substitute a new intent. "
-    "Do not describe wallet UI steps; completion is via Mercury HTTP + 1Claw signer."
-)
-
-
 def _message_content_as_str(content: str | list[str | dict[Any, Any]]) -> str:
     if isinstance(content, str):
         return content
@@ -92,15 +84,53 @@ def _final_ai_content(messages: list[BaseMessage]) -> str:
     return ""
 
 
+def _subagent_tools_from_specs(specs: Sequence[SubagentSpec]) -> list[BaseTool]:
+    """Build one LangChain tool per subagent spec (stable tool names from ``spec.name``)."""
+    tools: list[BaseTool] = []
+    seen: set[str] = set()
+    for spec in specs:
+        if spec.name in seen:
+            msg = f"Duplicate subagent tool name: {spec.name!r}"
+            raise ValueError(msg)
+        seen.add(spec.name)
+        tools.append(_create_subagent_tool(spec))
+    return tools
+
+
+def _create_subagent_tool(spec: SubagentSpec) -> BaseTool:
+    graph = spec.graph
+    keys = spec.state_keys
+    resume = spec.resume_instruction
+
+    @tool(spec.name, description=spec.description)
+    def _delegate(request: str, runtime: ToolRuntime) -> str:
+        st = runtime.state
+        sub_msgs: list[Any] = [HumanMessage(content=request)]
+        if resume is not None and st.get("approval_response") is not None:
+            sub_msgs.insert(0, SystemMessage(content=resume))
+        sub_input: dict[str, Any] = {"messages": sub_msgs}
+        for key in keys:
+            if key in st and st[key] is not None:
+                sub_input[key] = st[key]
+        out = graph.invoke(sub_input, runtime.config)
+        msgs = out.get("messages", [])
+        return _final_ai_content(msgs)
+
+    return _delegate
+
+
 def build_supervisor(
     *,
     model: str | BaseChatModel,
-    mercury_subagent: CompiledStateGraph,
+    subagents: Sequence[SubagentSpec],
+    additional_tools: Sequence[BaseTool] | None = None,
     supervisor_prompt_path: Path | None = None,
     system_prompt: str | None = None,
     inject_tools_context: bool = True,
 ) -> CompiledStateGraph:
-    """Build the top-level supervisor with checkpointed state and a Mercury tool.
+    """Build the top-level supervisor with checkpointed state and specialist tools.
+
+    Provide one :class:`SubagentSpec` per top-level tool (e.g. ``mercury``).
 
     If ``system_prompt`` is omitted, the default is loaded from ``supervisor_prompt_path``,
     ``JUNO_SUPERVISOR_PROMPT_PATH``, or ``config/juno.supervisor.md`` under the CWD.
@@ -109,40 +139,12 @@ def build_supervisor(
     generated section listing each registered tool name and description—so routing rules
     stay with tool docstrings and manifests, not only in the Markdown file.
     """
-    @tool
-    def mercury(request: str, runtime: ToolRuntime) -> str:
-        """Mercury specialist: real balances, wallets, Base/Ethereum/L2, txs, approvals.
+    if not subagents:
+        raise ValueError("subagents must be non-empty.")
 
-        **When to call:** Any request involving money/crypto, wallets, holdings, named
-        chains (e.g. Base, Ethereum, L2), transactions, swaps, transfers, approvals, gas,
-        or addresses—or anything that needs live Mercury/backend data.
-
-        Pass the user's goal in one ``request`` string (chain, wallet, tokens if mentioned).
-        The Mercury sub-agent turns this into structured ``mercury_invoke`` JSON.
-
-        **Do not call** for generic small talk with no backend data.
-
-        **After Telegram Approve:** If state already contains ``approval_response``, call this
-        again immediately with instructions for the specialist to repeat the **same**
-        ``mercury_invoke`` intent as before (same ``kind``, fields, ``idempotency_key``)—never
-        a new intent for the gated operation.
-
-        Completion is normally a second Mercury HTTP request with approval; prefer that over
-        asking the user to use browser wallets unless product docs say otherwise.
-        """
-        st = runtime.state
-        sub_msgs: list[Any] = [HumanMessage(content=request)]
-        if st.get("approval_response") is not None:
-            sub_msgs.insert(0, SystemMessage(content=_SUBAGENT_RESUME_AFTER_APPROVAL))
-        sub_input: dict[str, Any] = {"messages": sub_msgs}
-        for key in ("user_id", "wallet_id", "chain", "approval_response"):
-            if key in st and st[key] is not None:
-                sub_input[key] = st[key]
-        out = mercury_subagent.invoke(sub_input, runtime.config)
-        msgs = out.get("messages", [])
-        return _final_ai_content(msgs)
-
-    tools: list[BaseTool] = [mercury]
+    tools = _subagent_tools_from_specs(tuple(subagents))
+    if additional_tools:
+        tools.extend(additional_tools)
 
     if system_prompt is not None:
         base = system_prompt

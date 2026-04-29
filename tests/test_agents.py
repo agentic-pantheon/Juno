@@ -7,10 +7,12 @@ import uuid
 from pathlib import Path
 
 import httpx
+import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
 
-from juno.agents import build_mercury_subagent, build_supervisor
+from juno.agents import build_mercury_subagent, build_supervisor, default_mercury_subagent_spec
+from juno.agents.registry import SubagentSpec
 from juno.assistants.loader import AssistantManifest
 from juno.assistants.mercury_runner import MercuryAssistantRunner
 
@@ -45,7 +47,7 @@ def test_supervisor_no_tool_plain_done() -> None:
     sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
     sup = build_supervisor(
         model=model,
-        mercury_subagent=sub,
+        subagents=(default_mercury_subagent_spec(sub),),
         supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
     )
 
@@ -146,7 +148,7 @@ def test_supervisor_two_step_mercury_path() -> None:
     sub = build_mercury_subagent(model=sub_model, manifest=manifest, runner=runner)
     sup = build_supervisor(
         model=super_model,
-        mercury_subagent=sub,
+        subagents=(default_mercury_subagent_spec(sub),),
         supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
     )
 
@@ -166,3 +168,53 @@ def test_supervisor_two_step_mercury_path() -> None:
     assert body.get("wallet_id") == "w-1"
     assert body.get("chain") == "base"
     assert body["intent"]["kind"] == "erc20_balance"
+
+
+def test_build_supervisor_rejects_duplicate_subagent_names() -> None:
+    model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
+    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+
+    runner = MercuryAssistantRunner(
+        "https://unused.test",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"agent_reply": "ok"})),
+        http_path="/v1/agent",
+        request_body_mode="flat",
+    )
+    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    dup = default_mercury_subagent_spec(sub)
+    with pytest.raises(ValueError, match="Duplicate"):
+        build_supervisor(
+            model=model,
+            subagents=(dup, dup),
+            supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
+        )
+
+
+def test_build_supervisor_multiple_distinct_specs() -> None:
+    model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
+    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    runner = MercuryAssistantRunner(
+        "https://unused.test",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"agent_reply": "ok"})),
+        http_path="/v1/agent",
+        request_body_mode="flat",
+    )
+    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    specs = (
+        default_mercury_subagent_spec(sub),
+        SubagentSpec(
+            name="other",
+            description="Secondary specialist for multi-tool registration tests.",
+            graph=sub,
+            state_keys=(),
+            resume_instruction=None,
+            supports_wallet_approval_ui=False,
+        ),
+    )
+    sup = build_supervisor(
+        model=model,
+        subagents=specs,
+        supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
+    )
+    out = sup.invoke({"messages": [HumanMessage("hello")]}, _thread_config())
+    assert out["messages"][-1].content == "done"

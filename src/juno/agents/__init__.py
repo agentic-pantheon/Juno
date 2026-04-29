@@ -8,13 +8,19 @@ from juno.agents.build_supervisor import (
     load_supervisor_system_prompt,
 )
 from juno.agents.mercury_payload import turn_result_to_tool_text
+from juno.agents.registry import (
+    SubagentSpec,
+    default_mercury_subagent_spec,
+)
 from juno.agents.state import CustomAgentState
 
 __all__ = [
     "CustomAgentState",
+    "SubagentSpec",
     "build_mercury_subagent",
     "build_supervisor",
     "compose_supervisor_system_prompt",
+    "default_mercury_subagent_spec",
     "format_supervisor_tools_context",
     "load_supervisor_system_prompt",
     "turn_result_to_tool_text",

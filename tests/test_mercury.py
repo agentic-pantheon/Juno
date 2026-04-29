@@ -199,3 +199,13 @@ def test_run_turn_nested_input_mode() -> None:
     )
     out = runner.run_turn({"intent": {"kind": "x"}})
     assert isinstance(out, AssistantTurnSuccess)
+
+
+def test_turn_result_wallet_includes_structured_marker() -> None:
+    from juno.agents.mercury_payload import turn_result_to_tool_text
+    from juno.approval_markers import JUNO_WALLET_APPROVAL_UI_MARKER
+
+    text = turn_result_to_tool_text(
+        AssistantTurnWalletApproval(approval_token="tok_1", approval_id="aid"),
+    )
+    assert text.startswith(f"{JUNO_WALLET_APPROVAL_UI_MARKER}\n")
