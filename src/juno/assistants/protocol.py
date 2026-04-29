@@ -1,4 +1,4 @@
-"""Pydantic models for Mercury `/v1/agent` JSON responses.
+"""Pydantic models for Mercury HTTP JSON responses (any invoke/agent path).
 
 Mercury is assumed to return a JSON object. Shapes may be flat or partially nested
 under ``data``. The runner merges top-level keys with ``data`` (later wins on conflict)
@@ -131,6 +131,18 @@ def parse_mercury_body(raw: dict[str, Any]) -> AssistantTurnResult:
     """
     effective = _merge_mercury_payload(raw)
 
+    st = effective.get("status")
+    if st == "approval_required" or effective.get("approval_required") is True:
+        extras = {k: v for k, v in effective.items() if k not in ("status", "approval_required")}
+        token = effective.get("approval_token") or effective.get("idempotency_key")
+        if not isinstance(token, str):
+            token = None
+        return AssistantTurnWalletApproval(
+            approval_token=token,
+            approval_id=effective.get("approval_id") if isinstance(effective.get("approval_id"), str) else None,
+            extras=extras,
+        )
+
     wa = effective.get("wallet_approval_required")
     if wa is True:
         known = {"wallet_approval_required", "data"}
@@ -186,6 +198,9 @@ def parse_mercury_body(raw: dict[str, Any]) -> AssistantTurnResult:
     task_result = effective.get("task_result")
     if task_result is not None and not isinstance(task_result, dict):
         task_result = {"value": task_result}
+
+    if agent_reply is None and task_result is None and effective:
+        task_result = dict(effective)
 
     return AssistantTurnSuccess(
         agent_reply=agent_reply if isinstance(agent_reply, str) else None,

@@ -14,7 +14,8 @@ class CustomAgentState(AgentState[Any]):
     user_id: NotRequired[str | None]
     wallet_id: NotRequired[str | None]
     chain: NotRequired[str | None]
-    approval_response: NotRequired[str | None]
+    #: Mercury ``approval_response`` object (dict) or Telegram-held string (normalized in tools).
+    approval_response: NotRequired[Any]
 
 
 __all__ = ["CustomAgentState"]

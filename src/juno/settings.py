@@ -1,6 +1,7 @@
 """Runtime settings loaded from environment (minimal scaffold)."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -19,6 +20,13 @@ class Settings(BaseSettings):
         default=None,
         description="Optional assistants directory; env ``JUNO_ASSISTANTS_DIR``.",
     )
+    juno_supervisor_prompt_path: Path | None = Field(
+        default=None,
+        description=(
+            "Optional path to supervisor system prompt Markdown; env ``JUNO_SUPERVISOR_PROMPT_PATH``. "
+            "When unset, ``config/juno.supervisor.md`` under the process working directory is used."
+        ),
+    )
     telegram_bot_token: str = Field(
         default="",
         description="Telegram Bot API token; env ``TELEGRAM_BOT_TOKEN``.",
@@ -33,6 +41,20 @@ class Settings(BaseSettings):
         description=(
             "Mercury HTTP API base URL (no trailing path); env ``MERCURY_BASE_URL``. "
             "Required for real Mercury runs; empty is rejected at bot startup."
+        ),
+    )
+    mercury_http_path: str = Field(
+        default="/v1/mercury/invoke",
+        description=(
+            "Mercury invoke path; env MERCURY_HTTP_PATH. "
+            "Default /v1/mercury/invoke (structured intent). Use /v1/agent for pan-agentikit envelope."
+        ),
+    )
+    mercury_request_body_mode: Literal["flat", "nested_input"] = Field(
+        default="flat",
+        description=(
+            "flat: JSON body is the Mercury invoke dict as-is. "
+            "nested_input: wrap as {input: dict}. Env MERCURY_REQUEST_BODY_MODE."
         ),
     )
     juno_use_stream: bool = Field(

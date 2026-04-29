@@ -22,15 +22,28 @@ def turn_result_to_tool_text(result: AssistantTurnResult) -> str:
             return json.dumps(result.task_result, default=str)
         return "Success (no reply or task_result)."
     if isinstance(result, AssistantTurnWalletApproval):
+        idem = None
+        if result.extras:
+            idem = result.extras.get("idempotency_key")
+        if not isinstance(idem, str):
+            idem = result.approval_token or result.approval_id
         parts = [
-            "Wallet approval required.",
+            "Wallet approval required (Mercury approval gate).",
             f"approval_token={result.approval_token!r}",
             f"approval_id={result.approval_id!r}",
         ]
+        if isinstance(idem, str) and idem:
+            parts.append(f'idempotency_key="{idem}"')
         hint_parts: list[str] = []
         if result.extras:
             hint_parts.append(f"details={json.dumps(result.extras, default=str)}")
-        hint_parts.append("Ask the user to complete wallet approval before continuing.")
+        hint_parts.append(
+            "Juno/Telegram: user taps Approve, then sends any message. Juno will call Mercury "
+            "again with the SAME intent (including the same idempotency_key inside the intent) "
+            "and top-level approval_response. Do not instruct MetaMask/hardware signing unless "
+            "this deployment explicitly uses in-wallet signing; the default path is a second "
+            "POST /v1/mercury/invoke with approval_response (1Claw-backed signer)."
+        )
         parts.append(" ".join(hint_parts))
         return "\n".join(parts)
     if isinstance(result, AssistantTurnAgentError):

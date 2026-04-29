@@ -14,8 +14,10 @@ dependencies = [
     "httpx",
     "pydantic>=2",
     "pydantic-settings",
+    "python-dotenv>=1",
     "pyyaml",
     "langchain-openai",
+    "langchain-groq",
     "python-telegram-bot>=21",
 ]
 

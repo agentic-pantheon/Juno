@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from pathlib import Path
 
 import httpx
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
@@ -12,6 +13,9 @@ from langchain_core.messages import AIMessage, HumanMessage
 from juno.agents import build_mercury_subagent, build_supervisor
 from juno.assistants.loader import AssistantManifest
 from juno.assistants.mercury_runner import MercuryAssistantRunner
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_SUPERVISOR_PROMPT_PATH = _REPO_ROOT / "config" / "juno.supervisor.md"
 
 
 class FakeMessagesListChatModelWithTools(FakeMessagesListChatModel):
@@ -32,31 +36,46 @@ def test_supervisor_no_tool_plain_done() -> None:
     def boom(request: httpx.Request) -> httpx.Response:
         raise AssertionError("Mercury should not be called")
 
-    runner = MercuryAssistantRunner("https://unused.test", transport=httpx.MockTransport(boom))
+    runner = MercuryAssistantRunner(
+        "https://unused.test",
+        transport=httpx.MockTransport(boom),
+        http_path="/v1/agent",
+        request_body_mode="flat",
+    )
     sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
-    sup = build_supervisor(model=model, mercury_subagent=sub)
+    sup = build_supervisor(
+        model=model,
+        mercury_subagent=sub,
+        supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
+    )
 
     out = sup.invoke({"messages": [HumanMessage("hello")]}, _thread_config())
     assert out["messages"][-1].content == "done"
 
 
-def test_mercury_turn_tool_surfaces_agent_reply() -> None:
+def test_mercury_invoke_tool_surfaces_agent_reply() -> None:
     captured: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
         return httpx.Response(200, json={"agent_reply": "Mercury says hi"})
 
-    runner = MercuryAssistantRunner("https://mercury.test", transport=httpx.MockTransport(handler))
+    runner = MercuryAssistantRunner(
+        "https://mercury.test",
+        transport=httpx.MockTransport(handler),
+        http_path="/v1/agent",
+        request_body_mode="flat",
+    )
     manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="Specialist")
 
+    intent = json.dumps({"kind": "native_balance", "wallet_address": "0x123"})
     responses = [
         AIMessage(
             content="",
             tool_calls=[
                 {
-                    "name": "mercury_turn",
-                    "args": {"mercury_instruction": "greet"},
+                    "name": "mercury_invoke",
+                    "args": {"intent_json": intent},
                     "id": "call-sub-1",
                     "type": "tool_call",
                 }
@@ -72,17 +91,19 @@ def test_mercury_turn_tool_surfaces_agent_reply() -> None:
     assert any("Mercury says hi" in str(c) for c in tool_contents)
     assert len(captured) == 1
     body = json.loads(captured[0].content.decode())
-    assert "messages" in body
+    assert body["intent"]["kind"] == "native_balance"
+    assert body.get("wallet_id") == "primary"
 
 
 def test_supervisor_two_step_mercury_path() -> None:
+    sub_intent = json.dumps({"kind": "erc20_balance", "chain": "base", "token_address": "0xt", "wallet_address": "0xw"})
     sub_responses = [
         AIMessage(
             content="",
             tool_calls=[
                 {
-                    "name": "mercury_turn",
-                    "args": {"mercury_instruction": "run task"},
+                    "name": "mercury_invoke",
+                    "args": {"intent_json": sub_intent},
                     "id": "call-turn-1",
                     "type": "tool_call",
                 }
@@ -114,11 +135,20 @@ def test_supervisor_two_step_mercury_path() -> None:
         captured.append(request)
         return httpx.Response(200, json={"agent_reply": "API ok"})
 
-    runner = MercuryAssistantRunner("https://mercury.test", transport=httpx.MockTransport(handler))
+    runner = MercuryAssistantRunner(
+        "https://mercury.test",
+        transport=httpx.MockTransport(handler),
+        http_path="/v1/agent",
+        request_body_mode="flat",
+    )
     manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="Sub sys")
 
     sub = build_mercury_subagent(model=sub_model, manifest=manifest, runner=runner)
-    sup = build_supervisor(model=super_model, mercury_subagent=sub)
+    sup = build_supervisor(
+        model=super_model,
+        mercury_subagent=sub,
+        supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
+    )
 
     out = sup.invoke(
         {
@@ -135,3 +165,4 @@ def test_supervisor_two_step_mercury_path() -> None:
     assert body.get("user_id") == "user-1"
     assert body.get("wallet_id") == "w-1"
     assert body.get("chain") == "base"
+    assert body["intent"]["kind"] == "erc20_balance"

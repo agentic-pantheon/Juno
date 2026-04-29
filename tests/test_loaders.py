@@ -5,6 +5,10 @@ from pathlib import Path
 import pytest
 
 from juno import AssistantManifest, discover_assistants, load_identity
+from juno.agents.build_supervisor import (
+    compose_supervisor_system_prompt,
+    load_supervisor_system_prompt,
+)
 from juno.identity import JunoIdentityNotFoundError
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -29,3 +33,24 @@ def test_discover_assistants_mercury() -> None:
     assert m.base_url_env == "MERCURY_BASE_URL"
     assert m.instructions_md is not None
     assert "Mercury" in m.instructions_md
+
+
+def test_load_supervisor_prompt_md() -> None:
+    md = _REPO_ROOT / "config" / "juno.supervisor.md"
+    text = load_supervisor_system_prompt(md)
+    assert "Juno" in text
+    assert "## Tools available" not in text  # appended at build time, not in file
+
+
+def test_compose_supervisor_prompt_includes_tools() -> None:
+    from langchain.tools import tool
+
+    @tool
+    def mercury(request: str) -> str:
+        """Mercury specialist body for tests."""
+        return "ok"
+
+    base = load_supervisor_system_prompt(_REPO_ROOT / "config" / "juno.supervisor.md")
+    full = compose_supervisor_system_prompt(base, [mercury])
+    assert "### `mercury`" in full
+    assert "Mercury specialist body" in full

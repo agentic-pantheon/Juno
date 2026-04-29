@@ -70,6 +70,19 @@ def test_parse_empty_wallet_dict_is_success() -> None:
     assert isinstance(r, AssistantTurnSuccess)
 
 
+def test_parse_approval_required_status() -> None:
+    r = parse_mercury_body({"status": "approval_required", "idempotency_key": "swap-1"})
+    assert isinstance(r, AssistantTurnWalletApproval)
+    assert r.approval_token == "swap-1"
+
+
+def test_parse_invoke_response_becomes_task_result() -> None:
+    r = parse_mercury_body({"native_balance": "1.23", "currency": "ETH"})
+    assert isinstance(r, AssistantTurnSuccess)
+    assert r.task_result is not None
+    assert r.task_result.get("native_balance") == "1.23"
+
+
 def test_run_turn_success_and_idempotency() -> None:
     captured: list[httpx.Request] = []
 
@@ -80,6 +93,8 @@ def test_run_turn_success_and_idempotency() -> None:
     runner = MercuryAssistantRunner(
         "https://mercury.test",
         transport=httpx.MockTransport(handler),
+        http_path="/v1/agent",
+        request_body_mode="flat",
     )
     out = runner.run_turn({"messages": []}, idempotency_key="idem-1")
     assert isinstance(out, AssistantTurnSuccess)
@@ -100,6 +115,8 @@ def test_run_turn_body_idempotency_key_not_overwritten() -> None:
     runner = MercuryAssistantRunner(
         "https://mercury.test",
         transport=httpx.MockTransport(handler),
+        http_path="/v1/agent",
+        request_body_mode="flat",
     )
     runner.run_turn({"idempotency_key": "from-body"}, idempotency_key="from-arg")
     payload = json.loads(captured[0].content.decode())
@@ -114,6 +131,8 @@ def test_run_turn_http_error() -> None:
     runner = MercuryAssistantRunner(
         "https://mercury.test",
         transport=httpx.MockTransport(handler),
+        http_path="/v1/agent",
+        request_body_mode="flat",
     )
     out = runner.run_turn({})
     assert isinstance(out, AssistantTurnHttpError)
@@ -129,7 +148,54 @@ async def test_arun_turn() -> None:
     runner = MercuryAssistantRunner(
         "https://mercury.test",
         transport=httpx.MockTransport(handler),
+        http_path="/v1/agent",
+        request_body_mode="flat",
     )
     out = await runner.arun_turn({})
     assert isinstance(out, AssistantTurnSuccess)
     assert out.task_result == {"n": 2}
+
+
+def test_run_turn_defaults_mercury_invoke_flat_and_x_request_id() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        assert request.url.path == "/v1/mercury/invoke"
+        assert request.headers.get("X-Request-ID")
+        body = json.loads(request.content.decode())
+        assert body["intent"]["kind"] == "native_balance"
+        assert body["wallet_id"] == "primary"
+        return httpx.Response(200, json={"agent_reply": "invoked"})
+
+    runner = MercuryAssistantRunner("https://mercury.test", transport=httpx.MockTransport(handler))
+    out = runner.run_turn(
+        {
+            "user_id": "u1",
+            "wallet_id": "primary",
+            "chain": "base",
+            "intent": {"kind": "native_balance", "wallet_address": "0xabc"},
+        },
+    )
+    assert isinstance(out, AssistantTurnSuccess)
+    assert out.agent_reply == "invoked"
+
+
+def test_run_turn_nested_input_mode() -> None:
+    captured: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append(request)
+        outer = json.loads(request.content.decode())
+        assert "input" in outer
+        assert outer["input"]["intent"]["kind"] == "x"
+        return httpx.Response(200, json={"agent_reply": "ok"})
+
+    runner = MercuryAssistantRunner(
+        "https://mercury.test",
+        transport=httpx.MockTransport(handler),
+        http_path="/v1/legacy",
+        request_body_mode="nested_input",
+    )
+    out = runner.run_turn({"intent": {"kind": "x"}})
+    assert isinstance(out, AssistantTurnSuccess)

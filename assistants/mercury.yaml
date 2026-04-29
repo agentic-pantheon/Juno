@@ -1,10 +1,9 @@
-# Mercury assistant manifest (runner + prompts). Implement loader in assistants/loader.py.
+# Mercury assistant manifest. Role rules and intent recipes live in mercury.md.
 
 runner: mercury
 base_url_env: MERCURY_BASE_URL
 
-system_prompt: |
-  You are the Mercury assistant. Delegate financial or on-chain tasks to Mercury when appropriate.
+system_prompt: ""
 
 # Session fields required before invoking tools (placeholder; loaders will enforce later)
 requires_session_fields: []

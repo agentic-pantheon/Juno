@@ -1,9 +1,13 @@
-"""HTTP client for Mercury FastAPI: ``POST {base_url}/v1/agent``.
+"""HTTP client for Mercury FastAPI.
 
-**Request:** JSON object (your turn payload). When ``idempotency_key`` is passed to
-:meth:`MercuryAssistantRunner.run_turn` / :meth:`MercuryAssistantRunner.arun_turn`,
-the client sends header ``Idempotency-Key`` and sets body field ``idempotency_key``
-only if that key is not already present in the payload.
+Default: ``POST {base_url}/v1/mercury/invoke`` with a **flat** JSON body (Mercury E2E shape).
+
+Alternate shapes: set ``http_path`` and ``request_body_mode`` (e.g. pan-agentikit ``/v1/agent``
+or legacy ``{"input": {...}}`` wrappers).
+
+Each request sends ``X-Request-ID`` (UUID) unless disabled. When ``idempotency_key`` is passed,
+the client sets header ``Idempotency-Key`` and ``idempotency_key`` on the payload root (flat mode)
+or inner dict (nested mode).
 
 **Successful JSON examples** (see :mod:`juno.assistants.protocol` for full assumed shapes):
 
@@ -23,7 +27,8 @@ only if that key is not already present in the payload.
 from __future__ import annotations
 
 import json
-from typing import Any
+import uuid
+from typing import Any, Literal
 
 import httpx
 
@@ -34,24 +39,26 @@ from juno.assistants.protocol import (
     parse_mercury_body,
 )
 
-_AGENT_PATH = "/v1/agent"
-
-
 def _json_body_for_request(
     payload: dict[str, Any],
     *,
     idempotency_key: str | None,
+    request_body_mode: Literal["flat", "nested_input"],
 ) -> dict[str, Any]:
-    body = dict(payload)
+    inner = dict(payload)
     if idempotency_key is not None:
-        body.setdefault("idempotency_key", idempotency_key)
-    return body
+        inner.setdefault("idempotency_key", idempotency_key)
+    if request_body_mode == "flat":
+        return inner
+    return {"input": inner}
 
 
-def _headers(*, idempotency_key: str | None) -> dict[str, str]:
+def _headers(*, idempotency_key: str | None, x_request_id: str | None) -> dict[str, str]:
     h: dict[str, str] = {"Content-Type": "application/json"}
     if idempotency_key is not None:
         h["Idempotency-Key"] = idempotency_key
+    if x_request_id:
+        h["X-Request-ID"] = x_request_id
     return h
 
 
@@ -71,7 +78,7 @@ def _map_http_error(response: httpx.Response) -> AssistantTurnHttpError:
 
 
 class MercuryAssistantRunner:
-    """Sync/async runner for Mercury ``/v1/agent``."""
+    """Sync/async runner for Mercury HTTP (configurable path and body shape)."""
 
     def __init__(
         self,
@@ -79,8 +86,17 @@ class MercuryAssistantRunner:
         *,
         timeout_s: float = 60.0,
         transport: httpx.BaseTransport | None = None,
+        http_path: str = "/v1/mercury/invoke",
+        request_body_mode: Literal["flat", "nested_input"] = "flat",
+        send_x_request_id: bool = True,
     ) -> None:
         self.base_url = base_url.rstrip("/")
+        path = http_path.strip()
+        if not path.startswith("/"):
+            path = "/" + path
+        self._http_path = path
+        self._request_body_mode = request_body_mode
+        self._send_x_request_id = send_x_request_id
         self.timeout_s = timeout_s
         self._transport = transport
 
@@ -90,9 +106,14 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None = None,
     ) -> AssistantTurnResult:
-        url = f"{self.base_url}{_AGENT_PATH}"
-        body = _json_body_for_request(payload, idempotency_key=idempotency_key)
-        headers = _headers(idempotency_key=idempotency_key)
+        url = f"{self.base_url}{self._http_path}"
+        body = _json_body_for_request(
+            payload,
+            idempotency_key=idempotency_key,
+            request_body_mode=self._request_body_mode,
+        )
+        rid = str(uuid.uuid4()) if self._send_x_request_id else None
+        headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
         with httpx.Client(timeout=self.timeout_s, transport=self._transport) as client:
             response = client.post(url, json=body, headers=headers)
         if response.status_code >= 400:
@@ -119,9 +140,14 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None = None,
     ) -> AssistantTurnResult:
-        url = f"{self.base_url}{_AGENT_PATH}"
-        body = _json_body_for_request(payload, idempotency_key=idempotency_key)
-        headers = _headers(idempotency_key=idempotency_key)
+        url = f"{self.base_url}{self._http_path}"
+        body = _json_body_for_request(
+            payload,
+            idempotency_key=idempotency_key,
+            request_body_mode=self._request_body_mode,
+        )
+        rid = str(uuid.uuid4()) if self._send_x_request_id else None
+        headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
         async with httpx.AsyncClient(timeout=self.timeout_s, transport=self._transport) as client:
             response = await client.post(url, json=body, headers=headers)
         if response.status_code >= 400:
