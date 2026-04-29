@@ -6,7 +6,7 @@ todos:
     content: "Create Juno repo: pyproject.toml (uv), src/juno, config/juno.identity.yaml.example, assistants/mercury.yaml + mercury.md stubs; deps per LangChain v1 (langchain, langgraph, httpx, pydantic, pyyaml)"
     status: pending
   - id: identity-assistants-loaders
-    content: "identity.py + assistants/loader.py (Pydantic models, YAML discovery, runner registry map)"
+    content: identity.py + assistants/loader.py (Pydantic models, YAML discovery, runner registry map)
     status: pending
   - id: mercury-runner
     content: "MercuryAssistantRunner: httpx POST /v1/agent, idempotency, parse response kinds; protocol.py AssistantTurnResult"
@@ -18,7 +18,7 @@ todos:
     content: "telegram/bot.py: polling; agent.invoke(..., config); optional agent.astream stream_mode messages/updates + version v2 for typing indicator; Mercury approval via inline keyboard + approval_response on next invoke"
     status: pending
   - id: tests-readme
-    content: "pytest mock Mercury HTTP; README with doc links (subagents, short-term memory, streaming) and two-service dev"
+    content: pytest mock Mercury HTTP; README with doc links (subagents, short-term memory, streaming) and two-service dev
     status: pending
 isProject: false
 ---

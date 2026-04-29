@@ -1,0 +1,13 @@
+# Copy to juno.identity.yaml and adjust. Env var names are references only (values not stored here).
+agent_id: juno_supervisor
+display_name: Juno
+
+# Secret env var names used at runtime (not values)
+secrets:
+  openai_api_key_env: OPENAI_API_KEY
+
+# Default session-ish fields merged when absent (Mercury/custom state align with these keys)
+default_session_fields:
+  user_id: null
+  wallet_id: null
+  chain: null
