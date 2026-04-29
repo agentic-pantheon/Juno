@@ -10,6 +10,7 @@ from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from juno.identity import JunoIdentityNotFoundError, JunoIdentityValidationError, load_identity
+from juno.logging_config import configure_logging
 from juno.runtime.factory import build_supervisor_bundle
 from juno.settings import Settings
 from juno.telegram.handlers import (
@@ -91,10 +92,7 @@ def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv()
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
-    )
+    configure_logging()
     asyncio.run(run_bot())
 
 

@@ -11,7 +11,9 @@ requires-python = ">=3.12"
 dependencies = [
     "langchain",
     "langgraph",
+    "langsmith>=0.7",
     "httpx",
+    "rich>=13",
     "pydantic>=2",
     "pydantic-settings",
     "python-dotenv>=1",

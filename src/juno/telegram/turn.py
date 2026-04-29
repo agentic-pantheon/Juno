@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
+import uuid
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph.state import CompiledStateGraph
-from telegram import Update
 from telegram.constants import ChatAction
-from telegram.ext import Application, ContextTypes
+from telegram.ext import Application
 
+from juno.logging_config import juno_trace_scope
 from juno.settings import Settings
 from juno.telegram.approval_state import (
     pop_last_approval_token,
@@ -69,10 +71,27 @@ async def invoke_supervisor(
     *,
     use_typing: bool,
 ) -> dict[str, Any]:
+    trace_id = (config.get("metadata") or {}).get("juno_trace_id")
+    logger.info(
+        "phase=supervisor_invoke_start trace_id=%s chat_id=%s typing=%s",
+        trace_id,
+        chat_id,
+        use_typing,
+    )
+    t0 = time.perf_counter()
     fut = asyncio.to_thread(supervisor.invoke, inp, config)
-    if use_typing:
-        return await typing_while(application.bot, chat_id, fut)
-    return await fut
+    try:
+        if use_typing:
+            out = await typing_while(application.bot, chat_id, fut)
+        else:
+            out = await fut
+    finally:
+        logger.info(
+            "phase=supervisor_invoke_end trace_id=%s duration_ms=%.1f",
+            trace_id,
+            (time.perf_counter() - t0) * 1000.0,
+        )
+    return out
 
 
 async def execute_supervisor_turn(
@@ -84,6 +103,8 @@ async def execute_supervisor_turn(
     reply_to_message_id: int | None = None,
 ) -> None:
     """Run one supervisor invoke and send the reply (and optional approval keyboard)."""
+    trace_id = uuid.uuid4().hex
+    user_id = str(user.id) if user else None
     supervisor: CompiledStateGraph = application.bot_data["supervisor"]
     settings: Settings = application.bot_data["settings"]
     sess = get_chat_session(application.bot_data, chat_id)
@@ -95,6 +116,23 @@ async def execute_supervisor_turn(
         approval_val = pending
         had_approval_merge = True
 
+    logger.info(
+        "phase=turn_start trace_id=%s chat_id=%s user_id=%s user_text_len=%s "
+        "had_approval_merge=%s has_approval_in_input=%s",
+        trace_id,
+        chat_id,
+        user_id,
+        len(user_text),
+        had_approval_merge,
+        approval_val is not None,
+    )
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "phase=turn_user_preview trace_id=%s preview=%r",
+            trace_id,
+            (user_text[:80] + "…") if len(user_text) > 80 else user_text,
+        )
+
     messages: list[Any] = []
     if had_approval_merge:
         messages.append(SystemMessage(content=TELEGRAM_AFTER_APPROVE_SYSTEM))
@@ -102,32 +140,51 @@ async def execute_supervisor_turn(
 
     inp: dict[str, Any] = {
         "messages": messages,
-        "user_id": str(user.id) if user else None,
+        "user_id": user_id,
         "wallet_id": sess["wallet_id"],
         "chain": sess["chain"],
     }
     if approval_val is not None:
         inp["approval_response"] = approval_val
 
-    config = {"configurable": {"thread_id": str(chat_id)}}
+    metadata = {
+        "juno_trace_id": trace_id,
+        "telegram_chat_id": chat_id,
+        "telegram_user_id": user_id,
+    }
+    config: dict[str, Any] = {
+        "configurable": {
+            "thread_id": str(chat_id),
+            "juno_trace_id": trace_id,
+        },
+        "metadata": metadata,
+        "tags": ["juno", "telegram"],
+        "run_name": "juno_telegram_turn",
+    }
 
-    try:
-        out = await invoke_supervisor(
-            application,
-            chat_id,
-            supervisor,
-            inp,
-            config,
-            use_typing=settings.juno_use_stream,
-        )
-    except Exception as exc:
-        logger.exception("supervisor.invoke failed")
-        await application.bot.send_message(
-            chat_id=chat_id,
-            text=format_agent_error(exc),
-            reply_to_message_id=reply_to_message_id,
-        )
-        return
+    turn_t0 = time.perf_counter()
+    with juno_trace_scope(trace_id):
+        try:
+            out = await invoke_supervisor(
+                application,
+                chat_id,
+                supervisor,
+                inp,
+                config,
+                use_typing=settings.juno_use_stream,
+            )
+        except Exception as exc:
+            logger.exception(
+                "phase=turn_error trace_id=%s chat_id=%s supervisor.invoke failed",
+                trace_id,
+                chat_id,
+            )
+            await application.bot.send_message(
+                chat_id=chat_id,
+                text=format_agent_error(exc),
+                reply_to_message_id=reply_to_message_id,
+            )
+            return
 
     if had_approval_merge:
         pop_last_approval_token(application.bot_data, chat_id)
@@ -146,12 +203,23 @@ async def execute_supervisor_turn(
             reply_markup=keyboard,
             reply_to_message_id=reply_to_message_id,
         )
+        logger.info(
+            "phase=turn_end trace_id=%s outcome=wallet_approval_keyboard duration_ms=%.1f",
+            trace_id,
+            (time.perf_counter() - turn_t0) * 1000.0,
+        )
         return
 
     await application.bot.send_message(
         chat_id=chat_id,
         text=final_text if final_text.strip() else "(no reply)",
         reply_to_message_id=reply_to_message_id,
+    )
+    logger.info(
+        "phase=turn_end trace_id=%s outcome=reply duration_ms=%.1f reply_len=%s",
+        trace_id,
+        (time.perf_counter() - turn_t0) * 1000.0,
+        len(final_text),
     )
 
 
