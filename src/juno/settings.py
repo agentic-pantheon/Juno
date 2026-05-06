@@ -61,3 +61,11 @@ class Settings(BaseSettings):
         default=False,
         description="If true, send periodic typing while the supervisor runs; env ``JUNO_USE_STREAM``.",
     )
+    juno_long_term_memory_dir: Path = Field(
+        default=Path("data") / "juno_long_term_memory",
+        validation_alias=AliasChoices("JUNO_LONGTERM_MEMORY_DIR"),
+        description=(
+            "Directory for per-user long-term memory JSON files; env ``JUNO_LONGTERM_MEMORY_DIR``. "
+            "Default ``data/juno_long_term_memory`` relative to the process working directory."
+        ),
+    )

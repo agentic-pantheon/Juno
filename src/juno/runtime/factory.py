@@ -75,6 +75,7 @@ def build_supervisor_bundle(settings: Settings) -> SupervisorBundle:
         model=settings.openai_model,
         subagents=specs,
         supervisor_prompt_path=settings.juno_supervisor_prompt_path,
+        long_term_memory_dir=settings.juno_long_term_memory_dir,
     )
     return SupervisorBundle(
         graph=graph,

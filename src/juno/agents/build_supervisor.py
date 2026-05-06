@@ -17,6 +17,7 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
+from juno.agents.memory import build_long_term_memory_model_middleware, build_update_user_memory_tool
 from juno.agents.registry import SubagentSpec
 from juno.agents.state import CustomAgentState
 from juno.logging_config import get_trace_id
@@ -153,6 +154,7 @@ def build_supervisor(
     model: str | BaseChatModel,
     subagents: Sequence[SubagentSpec],
     additional_tools: Sequence[BaseTool] | None = None,
+    long_term_memory_dir: Path | None = None,
     supervisor_prompt_path: Path | None = None,
     system_prompt: str | None = None,
     inject_tools_context: bool = True,
@@ -172,8 +174,12 @@ def build_supervisor(
         raise ValueError("subagents must be non-empty.")
 
     tools = _subagent_tools_from_specs(tuple(subagents))
-    if additional_tools:
-        tools.extend(additional_tools)
+    extra_tools: list[BaseTool] = list(additional_tools) if additional_tools else []
+    memory_middleware: tuple[Any, ...] = ()
+    if long_term_memory_dir is not None:
+        extra_tools.append(build_update_user_memory_tool(long_term_memory_dir))
+        memory_middleware = (build_long_term_memory_model_middleware(long_term_memory_dir),)
+    tools.extend(extra_tools)
 
     if system_prompt is not None:
         base = system_prompt
@@ -191,6 +197,7 @@ def build_supervisor(
         system_prompt=prompt,
         checkpointer=InMemorySaver(),
         state_schema=CustomAgentState,
+        middleware=memory_middleware,
     )
 
 
