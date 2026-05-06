@@ -68,6 +68,7 @@ Relevant concepts and APIs:
 | `JUNO_ASSISTANTS_DIR` | Assistants definitions directory (optional) |
 | `JUNO_SUPERVISOR_PROMPT_PATH` | Override path to the supervisor Markdown prompt (default: `config/juno.supervisor.md` under the working directory) |
 | `JUNO_USE_STREAM` | If set truthy, sends periodic typing while the supervisor runs |
+| `JUNO_LONGTERM_MEMORY_DIR` | Per-user long-term memory JSON directory; defaults to `data/juno_long_term_memory` under the process working directory |
 
 Optional: `.env` in the project root is loaded into the process environment at bot startup (`load_dotenv`) so provider SDKs (Groq, OpenAI, etc.) see keys like `GROQ_API_KEY`; Pydantic Settings also reads the same file for app fields.
 
