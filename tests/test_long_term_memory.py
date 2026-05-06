@@ -41,6 +41,7 @@ def test_load_user_memory_missing_file_default_tone_concise(tmp_path: Path) -> N
     profile = load_user_memory(tmp_path, "any-user-id")
     assert profile.tone == "concise"
     assert profile.user_name is None
+    assert not profile.has_saved_context()
 
 
 def test_load_user_memory_empty_json_object_default_tone_concise(tmp_path: Path) -> None:
@@ -173,6 +174,13 @@ def test_format_user_memory_for_prompt_fallback_tone_when_blank() -> None:
     assert "**Tone:** concise" in text
 
 
+def test_user_memory_profile_saved_context_detection() -> None:
+    assert not UserMemoryProfile().has_saved_context()
+    assert not UserMemoryProfile(tone="concise").has_saved_context()
+    assert UserMemoryProfile(user_name="Pat").has_saved_context()
+    assert UserMemoryProfile(tone="formal").has_saved_context()
+
+
 def test_supervisor_update_user_memory_persists_profile_json(tmp_path: Path) -> None:
     def boom(request: httpx.Request) -> httpx.Response:
         raise AssertionError("Mercury should not be called")
@@ -284,6 +292,8 @@ def test_long_term_memory_middleware_injects_profile_with_default_and_saved_fiel
     sys_a = _first_system_content(invocations[-1])
     assert "## Long-term profile" in sys_a
     assert "**Tone:** concise" in sys_a
+    assert "No long-term profile is saved for this user yet." in sys_a
+    assert "update_user_memory" in sys_a
 
     merge_user_memory(
         tmp_path,
@@ -302,3 +312,4 @@ def test_long_term_memory_middleware_injects_profile_with_default_and_saved_fiel
     assert "**Tone:** playful" in sys_b
     assert "**User name:** Ravi" in sys_b
     assert "**Mission:** Test middleware injection." in sys_b
+    assert "No long-term profile is saved for this user yet." not in sys_b

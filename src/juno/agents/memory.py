@@ -8,13 +8,20 @@ from typing import Any
 from langchain.agents.middleware import wrap_model_call
 from langchain.agents.middleware.types import ModelRequest
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage
 from langchain_core.tools import BaseTool
 
 from juno.agents.state import CustomAgentState
 from juno.memory import UserMemoryProfile, format_user_memory_for_prompt, load_user_memory, merge_user_memory
 
 _LTM_HEADING = "## Long-term profile"
+_LTM_ONBOARDING = (
+    "No long-term profile is saved for this user yet. At the start of the conversation, "
+    "ask the user for the details you should remember: their name, preferred agent name, "
+    "wallet address if any, preferred tone (default concise), and the agent mission. "
+    "Make this a brief setup question before handling other work; do not invent any values. "
+    "When the user answers, call `update_user_memory` with the provided fields."
+)
 
 
 def _system_message_text(msg: SystemMessage | None) -> str:
@@ -41,6 +48,11 @@ def _profile_effective_summary(profile: UserMemoryProfile) -> str:
             mission = mission[:77] + "..."
         parts.append(f"mission={mission!r}")
     return ", ".join(parts)
+
+
+def _is_start_of_thread(state: dict[str, Any]) -> bool:
+    messages = state.get("messages") or []
+    return not any(isinstance(message, AIMessage) for message in messages)
 
 
 def build_update_user_memory_tool(memory_dir: Path) -> BaseTool:
@@ -98,6 +110,8 @@ def build_long_term_memory_model_middleware(memory_dir: Path) -> Any:
         profile = load_user_memory(memory_dir, str(user_id))
         block = format_user_memory_for_prompt(profile)
         section = f"{_LTM_HEADING}\n\n{block}"
+        if not profile.has_saved_context() and _is_start_of_thread(state):
+            section = f"{section}\n\n{_LTM_ONBOARDING}"
 
         base_text = _system_message_text(request.system_message).rstrip()
         if base_text:
