@@ -69,3 +69,52 @@ class Settings(BaseSettings):
             "Default ``data/juno_long_term_memory`` relative to the process working directory."
         ),
     )
+    juno_use_shroud: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "JUNO_USE_SHROUD",
+            "JUNO_SHROUD_ENABLED",
+            "SHROUD_ENABLED",
+        ),
+        description=(
+            "If true, route LLM calls through Shroud using an OpenAI-compatible HTTP API; "
+            "env ``JUNO_USE_SHROUD``, ``JUNO_SHROUD_ENABLED``, or ``SHROUD_ENABLED``."
+        ),
+    )
+    juno_llm_base_url: str = Field(
+        default="https://shroud.1claw.xyz/v1",
+        validation_alias=AliasChoices(
+            "JUNO_LLM_BASE_URL",
+            "JUNO_SHROUD_BASE_URL",
+            "SHROUD_OPENAI_BASE_URL",
+        ),
+        description=(
+            "OpenAI-compatible API base URL used when Shroud is enabled; env "
+            "``JUNO_LLM_BASE_URL``, ``JUNO_SHROUD_BASE_URL``, or ``SHROUD_OPENAI_BASE_URL``."
+        ),
+    )
+    juno_shroud_provider: str = Field(
+        default="openai",
+        validation_alias=AliasChoices("JUNO_SHROUD_PROVIDER", "SHROUD_PROVIDER"),
+        description=(
+            "Shroud upstream provider header value, such as ``openai``, ``anthropic``, "
+            "or ``google``; env ``JUNO_SHROUD_PROVIDER`` or ``SHROUD_PROVIDER``."
+        ),
+    )
+    juno_shroud_agent_key_env: str = Field(
+        default="JUNO_SHROUD_AGENT_KEY",
+        validation_alias=AliasChoices("JUNO_SHROUD_AGENT_KEY_ENV", "SHROUD_AGENT_KEY_ENV"),
+        description=(
+            "Name of the process environment variable that holds ``agent_id:ocv_...``; "
+            "settings never embed the secret. Env ``JUNO_SHROUD_AGENT_KEY_ENV`` or "
+            "``SHROUD_AGENT_KEY_ENV``."
+        ),
+    )
+    juno_shroud_model_header: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("JUNO_SHROUD_MODEL_HEADER", "SHROUD_MODEL_HEADER"),
+        description=(
+            "If true, attach the active model id as ``X-Shroud-Model`` on Shroud requests; "
+            "env ``JUNO_SHROUD_MODEL_HEADER`` or ``SHROUD_MODEL_HEADER``."
+        ),
+    )
