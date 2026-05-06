@@ -7,12 +7,14 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from langchain_core.language_models.chat_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 
 from juno.agents import build_mercury_subagent, build_supervisor, default_mercury_subagent_spec
 from juno.agents.registry import SubagentSpec
 from juno.assistants.loader import AssistantManifest, discover_assistants
 from juno.assistants.mercury_runner import MercuryAssistantRunner
+from juno.llm.factory import build_agent_chat_model
 from juno.settings import Settings
 
 
@@ -39,8 +41,14 @@ def resolve_assistant_base_url(manifest: AssistantManifest, settings: Settings) 
     )
 
 
-def build_subagent_specs(settings: Settings) -> list[SubagentSpec]:
+def build_subagent_specs(
+    settings: Settings,
+    agent_model: str | BaseChatModel | None = None,
+) -> list[SubagentSpec]:
     """Dispatch on ``AssistantManifest.runner`` and return one :class:`SubagentSpec` per assistant."""
+    if agent_model is None:
+        agent_model = build_agent_chat_model(settings)
+
     assistants_root = (
         settings.juno_assistants_dir if settings.juno_assistants_dir is not None else Path("assistants")
     )
@@ -61,7 +69,7 @@ def build_subagent_specs(settings: Settings) -> list[SubagentSpec]:
         request_body_mode=settings.mercury_request_body_mode,
     )
     sub = build_mercury_subagent(
-        model=settings.openai_model,
+        model=agent_model,
         manifest=mercury_manifest,
         runner=runner,
     )
@@ -70,9 +78,10 @@ def build_subagent_specs(settings: Settings) -> list[SubagentSpec]:
 
 def build_supervisor_bundle(settings: Settings) -> SupervisorBundle:
     """Load manifests, build sub-agents and supervisor once; includes approval-ui metadata."""
-    specs = build_subagent_specs(settings)
+    agent_model = build_agent_chat_model(settings)
+    specs = build_subagent_specs(settings, agent_model)
     graph = build_supervisor(
-        model=settings.openai_model,
+        model=agent_model,
         subagents=specs,
         supervisor_prompt_path=settings.juno_supervisor_prompt_path,
         long_term_memory_dir=settings.juno_long_term_memory_dir,

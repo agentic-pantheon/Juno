@@ -64,3 +64,25 @@ def test_build_supervisor_bundle_includes_wallet_approval_tool_names(tmp_path) -
             bundle = build_supervisor_bundle(s)
     assert bundle.graph is fake_graph
     assert bundle.wallet_approval_supervisor_tool_names == frozenset({"mercury"})
+
+
+def test_build_supervisor_bundle_resolves_agent_model_once(tmp_path) -> None:
+    import shutil
+
+    repo_assistants = Path(__file__).resolve().parents[1] / "assistants"
+    shutil.copytree(repo_assistants, tmp_path / "assistants")
+    s = Settings(
+        mercury_base_url="https://m.test",
+        juno_assistants_dir=tmp_path / "assistants",
+        juno_supervisor_prompt_path=Path(__file__).resolve().parents[1] / "config" / "juno.supervisor.md",
+    )
+    sentinel = object()
+    fake_graph = MagicMock(name="compiled_graph")
+    with patch("juno.runtime.factory.build_agent_chat_model", return_value=sentinel) as mock_model:
+        with patch("juno.runtime.factory.build_mercury_subagent") as mock_sub:
+            mock_sub.return_value = MagicMock(name="subagent")
+            with patch("juno.runtime.factory.build_supervisor", return_value=fake_graph) as mock_sup:
+                build_supervisor_bundle(s)
+    mock_model.assert_called_once_with(s)
+    assert mock_sub.call_args.kwargs["model"] is sentinel
+    assert mock_sup.call_args.kwargs["model"] is sentinel
