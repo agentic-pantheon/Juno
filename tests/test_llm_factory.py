@@ -136,7 +136,7 @@ def test_shroud_mode_strips_agent_key_base_url_and_provider(monkeypatch) -> None
     s = Settings.model_construct(
         juno_use_shroud=True,
         juno_llm_base_url="  https://shroud.example/v1  ",
-        juno_shroud_provider="  anthropic  ",
+        juno_shroud_provider="  google  ",
         juno_shroud_agent_key_env="STRIP_SHROUD_KEY",
         juno_shroud_model_header=False,
         openai_model="  gpt-4o  ",
@@ -146,4 +146,4 @@ def test_shroud_mode_strips_agent_key_base_url_and_provider(monkeypatch) -> None
     assert model.openai_api_base == "https://shroud.example/v1"
     assert model.model_name == "gpt-4o"
     assert model.default_headers["X-Shroud-Agent-Key"] == "secret"
-    assert model.default_headers["X-Shroud-Provider"] == "anthropic"
+    assert model.default_headers["X-Shroud-Provider"] == "google"

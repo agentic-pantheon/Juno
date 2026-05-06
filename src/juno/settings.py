@@ -97,8 +97,9 @@ class Settings(BaseSettings):
         default="openai",
         validation_alias=AliasChoices("JUNO_SHROUD_PROVIDER", "SHROUD_PROVIDER"),
         description=(
-            "Shroud upstream provider header value, such as ``openai``, ``anthropic``, "
-            "or ``google``; env ``JUNO_SHROUD_PROVIDER`` or ``SHROUD_PROVIDER``."
+            "Shroud upstream provider header value for OpenAI-compatible chat completions, "
+            "such as ``openai``, ``google``, or ``openrouter``; env ``JUNO_SHROUD_PROVIDER`` "
+            "or ``SHROUD_PROVIDER``."
         ),
     )
     juno_shroud_agent_key_env: str = Field(
