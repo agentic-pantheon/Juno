@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from juno.memory.profile import UserMemoryProfile
+
+logger = logging.getLogger(__name__)
 
 _MEMORY_FILENAME_SUFFIX = ".json"
 _MAX_PROMPT_CHARS = 2048
@@ -33,9 +38,13 @@ def load_user_memory(memory_dir: Path, user_id: str) -> UserMemoryProfile:
     path = memory_file_path(memory_dir, user_id)
     if not path.is_file():
         return UserMemoryProfile()
-    raw = path.read_text(encoding="utf-8")
-    data = json.loads(raw)
-    return UserMemoryProfile.model_validate(data)
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        return UserMemoryProfile.model_validate(data)
+    except (OSError, json.JSONDecodeError, ValidationError):
+        logger.warning("Ignoring unreadable long-term memory profile at %s", path, exc_info=True)
+        return UserMemoryProfile()
 
 
 def save_user_memory(memory_dir: Path, user_id: str, profile: UserMemoryProfile) -> None:

@@ -52,6 +52,18 @@ def test_load_user_memory_empty_json_object_default_tone_concise(tmp_path: Path)
     assert profile.tone == "concise"
 
 
+def test_load_user_memory_invalid_json_falls_back_to_default(tmp_path: Path) -> None:
+    uid = "u-invalid-json"
+    path = memory_file_path(tmp_path, uid)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"tone": null', encoding="utf-8")
+
+    profile = load_user_memory(tmp_path, uid)
+
+    assert profile.tone == "concise"
+    assert profile.user_name is None
+
+
 def test_save_merge_round_trip_persist_fields_and_safe_filename(tmp_path: Path) -> None:
     uid = "telegram|12345"
     original = UserMemoryProfile(
