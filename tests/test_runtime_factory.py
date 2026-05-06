@@ -16,6 +16,21 @@ from juno.runtime.factory import (
 from juno.settings import Settings
 
 
+@pytest.fixture(autouse=True)
+def disable_shroud_for_settings_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make `Settings()` deterministic in tests even if a local `.env` enables Shroud."""
+
+    monkeypatch.setenv("JUNO_USE_SHROUD", "false")
+    for key in (
+        "JUNO_SHROUD_ENABLED",
+        "SHROUD_ENABLED",
+        "JUNO_SHROUD_AGENT_KEY",
+        "JUNO_SHROUD_AGENT_KEY_ENV",
+        "SHROUD_AGENT_KEY_ENV",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_resolve_assistant_base_url_prefers_manifest_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERCURY_BASE_URL", "https://from-env.test")
     m = AssistantManifest(runner="mercury", base_url_env="MERCURY_BASE_URL", system_prompt="")

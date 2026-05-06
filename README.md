@@ -77,6 +77,12 @@ Relevant concepts and APIs:
 
 Optional: `.env` in the project root is loaded into the process environment at bot startup (`load_dotenv`) so provider SDKs (Groq, OpenAI, etc.) see keys like `GROQ_API_KEY`; Pydantic Settings also reads the same file for app fields.
 
+Start from the template:
+
+```bash
+cp .env.example .env
+```
+
 ### Shroud (vault-resolved LLM)
 
 When Shroud is enabled, **only** LangChain LLM traffic uses `JUNO_LLM_BASE_URL` (or its aliases). Calls to **Mercury** still use `MERCURY_BASE_URL` directly.
