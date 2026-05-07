@@ -64,6 +64,11 @@ Relevant concepts and APIs:
 | `OPENAI_API_KEY` | API key when using OpenAI-backed models; identity YAML `secrets.openai_api_key_env` names this (default `OPENAI_API_KEY`) |
 | `GROQ_API_KEY` | Required when `JUNO_MODEL` / `OPENAI_MODEL` uses the `groq:` provider (e.g. `groq:llama-3.3-70b-versatile`) |
 | `JUNO_MODEL` or `OPENAI_MODEL` | LangChain chat model id (e.g. `openai:gpt-4o-mini`, `groq:...`) — use a **colon** (`provider:model`), not a slash |
+| `JUNO_USE_SHROUD` | If truthy, route **supervisor/sub-agent LLM** calls through Shroud (OpenAI-compatible HTTP). Aliases: `JUNO_SHROUD_ENABLED`, `SHROUD_ENABLED`. Default off |
+| `JUNO_LLM_BASE_URL` | Shroud OpenAI-compatible base URL when Shroud is on (default in settings: `https://shroud.1claw.xyz/v1`). Aliases: `JUNO_SHROUD_BASE_URL`, `SHROUD_OPENAI_BASE_URL` |
+| `JUNO_SHROUD_PROVIDER` | Upstream provider Shroud should use for OpenAI-compatible chat completions (e.g. `openai`, `google`, `openrouter`). Alias: `SHROUD_PROVIDER` |
+| `JUNO_SHROUD_AGENT_KEY_ENV` | **Name** of the env var that holds the Shroud agent credential (`agent_id:ocv_...`); settings never embed the secret. Default name: `JUNO_SHROUD_AGENT_KEY`. Alias: `SHROUD_AGENT_KEY_ENV` |
+| `JUNO_SHROUD_MODEL_HEADER` | If truthy, send the active model id to Shroud (default on). Alias: `SHROUD_MODEL_HEADER` |
 | `JUNO_IDENTITY_PATH` | Path to identity YAML (optional; defaults apply if unset) |
 | `JUNO_ASSISTANTS_DIR` | Assistants definitions directory (optional) |
 | `JUNO_SUPERVISOR_PROMPT_PATH` | Override path to the supervisor Markdown prompt (default: `config/juno.supervisor.md` under the working directory) |
@@ -71,6 +76,31 @@ Relevant concepts and APIs:
 | `JUNO_LONGTERM_MEMORY_DIR` | Per-user long-term memory JSON directory; defaults to `data/juno_long_term_memory` under the process working directory |
 
 Optional: `.env` in the project root is loaded into the process environment at bot startup (`load_dotenv`) so provider SDKs (Groq, OpenAI, etc.) see keys like `GROQ_API_KEY`; Pydantic Settings also reads the same file for app fields.
+
+Start from the template:
+
+```bash
+cp .env.example .env
+```
+
+### Shroud (vault-resolved LLM)
+
+When Shroud is enabled, **only** LangChain LLM traffic uses `JUNO_LLM_BASE_URL` (or its aliases). Calls to **Mercury** still use `MERCURY_BASE_URL` directly.
+
+With **vault-resolved** upstream credentials, Shroud loads the provider API key from **1Claw Vault** (for example `providers/{provider}/api-key`) using the agent’s vault permissions. You do **not** set `OPENAI_API_KEY`, `GROQ_API_KEY`, or similar in Juno for that path. Juno must still supply the Shroud **agent** credential via the env var named by `JUNO_SHROUD_AGENT_KEY_ENV` (by default set `JUNO_SHROUD_AGENT_KEY`).
+
+Minimal example (direct Shroud, vault-backed provider key):
+
+```bash
+export MERCURY_BASE_URL="https://your-mercury.example"
+export JUNO_USE_SHROUD=true
+export JUNO_LLM_BASE_URL="https://shroud.1claw.xyz/v1"
+export JUNO_SHROUD_PROVIDER="openai"
+export JUNO_SHROUD_AGENT_KEY="agent_id:ocv_..."   # agent key for Shroud; upstream key comes from Vault
+export JUNO_MODEL="openai:gpt-4o-mini"
+```
+
+**Rollout:** validate in **staging** first. For production, prefer a **warn-first** or gradual cutover (monitor errors/latency), then widen. **Rollback:** set `JUNO_USE_SHROUD=false` or unset it and restart; supply normal provider keys again if you are not using Shroud.
 
 ## Run
 

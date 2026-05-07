@@ -16,6 +16,21 @@ from juno.runtime.factory import (
 from juno.settings import Settings
 
 
+@pytest.fixture(autouse=True)
+def disable_shroud_for_settings_construction(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make `Settings()` deterministic in tests even if a local `.env` enables Shroud."""
+
+    monkeypatch.setenv("JUNO_USE_SHROUD", "false")
+    for key in (
+        "JUNO_SHROUD_ENABLED",
+        "SHROUD_ENABLED",
+        "JUNO_SHROUD_AGENT_KEY",
+        "JUNO_SHROUD_AGENT_KEY_ENV",
+        "SHROUD_AGENT_KEY_ENV",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_resolve_assistant_base_url_prefers_manifest_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MERCURY_BASE_URL", "https://from-env.test")
     m = AssistantManifest(runner="mercury", base_url_env="MERCURY_BASE_URL", system_prompt="")
@@ -64,3 +79,45 @@ def test_build_supervisor_bundle_includes_wallet_approval_tool_names(tmp_path) -
             bundle = build_supervisor_bundle(s)
     assert bundle.graph is fake_graph
     assert bundle.wallet_approval_supervisor_tool_names == frozenset({"mercury"})
+
+
+def test_build_supervisor_bundle_resolves_agent_model_once(tmp_path) -> None:
+    import shutil
+
+    repo_assistants = Path(__file__).resolve().parents[1] / "assistants"
+    shutil.copytree(repo_assistants, tmp_path / "assistants")
+    s = Settings(
+        mercury_base_url="https://m.test",
+        juno_assistants_dir=tmp_path / "assistants",
+        juno_supervisor_prompt_path=Path(__file__).resolve().parents[1] / "config" / "juno.supervisor.md",
+    )
+    sentinel = object()
+    fake_graph = MagicMock(name="compiled_graph")
+    with patch("juno.runtime.factory.build_agent_chat_model", return_value=sentinel) as mock_model:
+        with patch("juno.runtime.factory.build_mercury_subagent") as mock_sub:
+            mock_sub.return_value = MagicMock(name="subagent")
+            with patch("juno.runtime.factory.build_supervisor", return_value=fake_graph) as mock_sup:
+                build_supervisor_bundle(s)
+    mock_model.assert_called_once_with(s)
+    assert mock_sub.call_args.kwargs["model"] is sentinel
+    assert mock_sup.call_args.kwargs["model"] is sentinel
+
+
+def test_build_subagent_specs_skips_model_factory_when_model_provided(tmp_path) -> None:
+    """Explicit agent_model must be reused (single build in bundle path)."""
+    import shutil
+
+    repo_assistants = Path(__file__).resolve().parents[1] / "assistants"
+    shutil.copytree(repo_assistants, tmp_path / "assistants")
+    s = Settings(
+        mercury_base_url="https://m.test",
+        juno_assistants_dir=tmp_path / "assistants",
+        juno_supervisor_prompt_path=Path(__file__).resolve().parents[1] / "config" / "juno.supervisor.md",
+    )
+    sentinel = object()
+    with patch("juno.runtime.factory.build_agent_chat_model") as mock_model:
+        with patch("juno.runtime.factory.build_mercury_subagent") as mock_sub:
+            mock_sub.return_value = MagicMock(name="subagent")
+            build_subagent_specs(s, agent_model=sentinel)
+    mock_model.assert_not_called()
+    assert mock_sub.call_args.kwargs["model"] is sentinel
