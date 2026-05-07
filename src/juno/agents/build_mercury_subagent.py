@@ -1,4 +1,4 @@
-"""Mercury specialist sub-agent: tool that POSTs structured invokes via :class:`MercuryAssistantRunner`."""
+"""Mercury specialist sub-agent: tool that forwards structured invokes via a runner."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from juno.agents.mercury_payload import turn_result_to_tool_text
 from juno.agents.remote_guide_middleware import build_remote_invoke_guide_middleware
 from juno.agents.state import CustomAgentState
 from juno.assistants.loader import AssistantManifest
-from juno.assistants.mercury_runner import MercuryAssistantRunner
+from juno.assistants.mercury_runner import MercuryAssistantRunnerLike
 from juno.logging_config import get_trace_id
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def build_mercury_subagent(
     *,
     model: str | BaseChatModel,
     manifest: AssistantManifest,
-    runner: MercuryAssistantRunner,
+    runner: MercuryAssistantRunnerLike,
 ) -> CompiledStateGraph:
     """Build a LangChain agent whose only tool forwards structured Mercury invokes."""
     parts: list[str] = []

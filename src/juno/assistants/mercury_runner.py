@@ -28,7 +28,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import httpx
 from langsmith import traceable
@@ -51,6 +51,20 @@ logger = logging.getLogger(__name__)
 
 # Matches Mercury FastAPI ``GET /v1/mercury/invoke/guide`` (see ``mercury.service.api``).
 _LOCAL_INVOKE_GUIDE_PATH = "/v1/mercury/invoke/guide"
+
+
+@runtime_checkable
+class MercuryAssistantRunnerLike(Protocol):
+    """Minimal surface used by ``build_mercury_subagent``."""
+
+    def fetch_get_text(self, relative_path: str) -> str: ...
+
+    def run_turn(
+        self,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> AssistantTurnResult: ...
 
 
 def _intent_kind_from_payload(payload: dict[str, Any]) -> str | None:
@@ -401,4 +415,4 @@ def _traced_local_mercury_run_turn(
     return runner._execute_local_turn(payload, idempotency_key=idempotency_key)
 
 
-__all__ = ["LocalMercuryAssistantRunner", "MercuryAssistantRunner"]
+__all__ = ["LocalMercuryAssistantRunner", "MercuryAssistantRunner", "MercuryAssistantRunnerLike"]
