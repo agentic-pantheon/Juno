@@ -26,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 import uuid
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -45,7 +44,6 @@ from juno.assistants.protocol import (
     AssistantTurnResult,
     parse_mercury_body,
 )
-from juno.logging_config import get_trace_id
 
 logger = logging.getLogger(__name__)
 
@@ -65,13 +63,6 @@ class MercuryAssistantRunnerLike(Protocol):
         *,
         idempotency_key: str | None = None,
     ) -> AssistantTurnResult: ...
-
-
-def _intent_kind_from_payload(payload: dict[str, Any]) -> str | None:
-    intent = payload.get("intent")
-    if isinstance(intent, dict) and intent.get("kind") is not None:
-        return str(intent.get("kind"))
-    return None
 
 
 def _response_to_result(response: httpx.Response) -> AssistantTurnResult:
@@ -204,8 +195,6 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None,
     ) -> AssistantTurnResult:
-        tid = get_trace_id()
-        kind = _intent_kind_from_payload(payload)
         url = f"{self.base_url}{self._http_path}"
         body = _json_body_for_request(
             payload,
@@ -214,28 +203,9 @@ class MercuryAssistantRunner:
         )
         rid = str(uuid.uuid4()) if self._send_x_request_id else None
         headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
-        logger.info(
-            "phase=mercury_http_start trace_id=%s path=%s x_request_id=%s intent_kind=%s idempotency=%s",
-            tid,
-            self._http_path,
-            rid,
-            kind,
-            idempotency_key is not None,
-        )
-        t0 = time.perf_counter()
         with httpx.Client(timeout=self.timeout_s, transport=self._transport) as client:
             response = client.post(url, json=body, headers=headers)
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        result = _response_to_result(response)
-        rkind = getattr(result, "kind", type(result).__name__)
-        logger.info(
-            "phase=mercury_http_end trace_id=%s duration_ms=%.1f http_status=%s result_kind=%s",
-            tid,
-            elapsed_ms,
-            response.status_code,
-            rkind,
-        )
-        return result
+        return _response_to_result(response)
 
     async def arun_turn(
         self,
@@ -243,8 +213,6 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None = None,
     ) -> AssistantTurnResult:
-        tid = get_trace_id()
-        kind = _intent_kind_from_payload(payload)
         url = f"{self.base_url}{self._http_path}"
         body = _json_body_for_request(
             payload,
@@ -253,27 +221,9 @@ class MercuryAssistantRunner:
         )
         rid = str(uuid.uuid4()) if self._send_x_request_id else None
         headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
-        logger.info(
-            "phase=mercury_http_async_start trace_id=%s path=%s x_request_id=%s intent_kind=%s",
-            tid,
-            self._http_path,
-            rid,
-            kind,
-        )
-        t0 = time.perf_counter()
         async with httpx.AsyncClient(timeout=self.timeout_s, transport=self._transport) as client:
             response = await client.post(url, json=body, headers=headers)
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        result = _response_to_result(response)
-        rkind = getattr(result, "kind", type(result).__name__)
-        logger.info(
-            "phase=mercury_http_async_end trace_id=%s duration_ms=%.1f http_status=%s result_kind=%s",
-            tid,
-            elapsed_ms,
-            response.status_code,
-            rkind,
-        )
-        return result
+        return _response_to_result(response)
 
 
 class LocalMercuryAssistantRunner:
@@ -321,26 +271,12 @@ class LocalMercuryAssistantRunner:
         *,
         idempotency_key: str | None,
     ) -> AssistantTurnResult:
-        tid = get_trace_id()
-        kind = _intent_kind_from_payload(payload)
         body = dict(payload)
         if idempotency_key is not None:
             body.setdefault("idempotency_key", idempotency_key)
-        logger.info(
-            "phase=mercury_local_start trace_id=%s intent_kind=%s idempotency=%s",
-            tid,
-            kind,
-            idempotency_key is not None,
-        )
-        t0 = time.perf_counter()
         try:
             request = MercuryInvokeRequest.model_validate(body)
         except ValidationError as exc:
-            logger.info(
-                "phase=mercury_local_validation_error trace_id=%s error_count=%s",
-                tid,
-                len(exc.errors()),
-            )
             return AssistantTurnAgentError(
                 message="Mercury request validation failed",
                 code="validation_error",
@@ -355,36 +291,19 @@ class LocalMercuryAssistantRunner:
                 idempotency_key=idempotency_key,
             )
         except GraphInvocationError as exc:
-            logger.info(
-                "phase=mercury_local_graph_error trace_id=%s message=%s",
-                tid,
-                exc,
-            )
             return AssistantTurnAgentError(
                 message=str(exc) if str(exc) else "Mercury graph invocation failed",
                 code=GraphInvocationError.error_code,
                 details=None,
             )
         except Exception as exc:
-            logger.exception(
-                "phase=mercury_local_unexpected_error trace_id=%s",
-                tid,
-            )
+            logger.exception("Mercury local invocation failed")
             return AssistantTurnAgentError(
                 message="Mercury invocation failed unexpectedly",
                 code="internal_error",
                 details={"error_type": type(exc).__name__},
             )
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        result = _local_response_to_result(response)
-        rkind = getattr(result, "kind", type(result).__name__)
-        logger.info(
-            "phase=mercury_local_end trace_id=%s duration_ms=%.1f result_kind=%s",
-            tid,
-            elapsed_ms,
-            rkind,
-        )
-        return result
+        return _local_response_to_result(response)
 
     async def arun_turn(
         self,

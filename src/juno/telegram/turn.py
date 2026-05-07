@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import time
 import uuid
 from typing import Any
 
@@ -71,27 +70,10 @@ async def invoke_supervisor(
     *,
     use_typing: bool,
 ) -> dict[str, Any]:
-    trace_id = (config.get("metadata") or {}).get("juno_trace_id")
-    logger.info(
-        "phase=supervisor_invoke_start trace_id=%s chat_id=%s typing=%s",
-        trace_id,
-        chat_id,
-        use_typing,
-    )
-    t0 = time.perf_counter()
     fut = asyncio.to_thread(supervisor.invoke, inp, config)
-    try:
-        if use_typing:
-            out = await typing_while(application.bot, chat_id, fut)
-        else:
-            out = await fut
-    finally:
-        logger.info(
-            "phase=supervisor_invoke_end trace_id=%s duration_ms=%.1f",
-            trace_id,
-            (time.perf_counter() - t0) * 1000.0,
-        )
-    return out
+    if use_typing:
+        return await typing_while(application.bot, chat_id, fut)
+    return await fut
 
 
 async def execute_supervisor_turn(
@@ -115,23 +97,6 @@ async def execute_supervisor_turn(
     if pending is not None:
         approval_val = pending
         had_approval_merge = True
-
-    logger.info(
-        "phase=turn_start trace_id=%s chat_id=%s user_id=%s user_text_len=%s "
-        "had_approval_merge=%s has_approval_in_input=%s",
-        trace_id,
-        chat_id,
-        user_id,
-        len(user_text),
-        had_approval_merge,
-        approval_val is not None,
-    )
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "phase=turn_user_preview trace_id=%s preview=%r",
-            trace_id,
-            (user_text[:80] + "…") if len(user_text) > 80 else user_text,
-        )
 
     messages: list[Any] = []
     if had_approval_merge:
@@ -162,7 +127,6 @@ async def execute_supervisor_turn(
         "run_name": "juno_telegram_turn",
     }
 
-    turn_t0 = time.perf_counter()
     with juno_trace_scope(trace_id):
         try:
             out = await invoke_supervisor(
@@ -175,9 +139,9 @@ async def execute_supervisor_turn(
             )
         except Exception as exc:
             logger.exception(
-                "phase=turn_error trace_id=%s chat_id=%s supervisor.invoke failed",
-                trace_id,
+                "supervisor.invoke failed (chat_id=%s trace_id=%s)",
                 chat_id,
+                trace_id,
             )
             await application.bot.send_message(
                 chat_id=chat_id,
@@ -203,23 +167,12 @@ async def execute_supervisor_turn(
             reply_markup=keyboard,
             reply_to_message_id=reply_to_message_id,
         )
-        logger.info(
-            "phase=turn_end trace_id=%s outcome=wallet_approval_keyboard duration_ms=%.1f",
-            trace_id,
-            (time.perf_counter() - turn_t0) * 1000.0,
-        )
         return
 
     await application.bot.send_message(
         chat_id=chat_id,
         text=final_text if final_text.strip() else "(no reply)",
         reply_to_message_id=reply_to_message_id,
-    )
-    logger.info(
-        "phase=turn_end trace_id=%s outcome=reply duration_ms=%.1f reply_len=%s",
-        trace_id,
-        (time.perf_counter() - turn_t0) * 1000.0,
-        len(final_text),
     )
 
 
