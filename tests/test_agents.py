@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import uuid
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.checkpoint.memory import InMemorySaver
 
 from juno.agents import build_mercury_subagent, build_supervisor, default_mercury_subagent_spec
 from juno.agents.registry import SubagentSpec
@@ -252,6 +254,50 @@ def test_build_supervisor_rejects_duplicate_subagent_names() -> None:
             subagents=(dup, dup),
             supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
         )
+
+
+def test_build_supervisor_passes_injected_checkpointer_to_create_agent() -> None:
+    model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
+    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    runner = MercuryAssistantRunner(
+        "https://unused.test",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"agent_reply": "ok"})),
+        http_path="/v1/agent",
+        request_body_mode="flat",
+    )
+    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    injected = InMemorySaver()
+    fake_graph = MagicMock()
+    with patch("juno.agents.build_supervisor.create_agent", return_value=fake_graph) as mock_create:
+        graph = build_supervisor(
+            model=model,
+            subagents=(default_mercury_subagent_spec(sub),),
+            supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
+            checkpointer=injected,
+        )
+    assert graph is fake_graph
+    assert mock_create.call_args.kwargs["checkpointer"] is injected
+
+
+def test_build_supervisor_defaults_checkpointer_to_in_memory_saver() -> None:
+    model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
+    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    runner = MercuryAssistantRunner(
+        "https://unused.test",
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"agent_reply": "ok"})),
+        http_path="/v1/agent",
+        request_body_mode="flat",
+    )
+    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    fake_graph = MagicMock()
+    with patch("juno.agents.build_supervisor.create_agent", return_value=fake_graph) as mock_create:
+        build_supervisor(
+            model=model,
+            subagents=(default_mercury_subagent_spec(sub),),
+            supervisor_prompt_path=_SUPERVISOR_PROMPT_PATH,
+        )
+    cp = mock_create.call_args.kwargs["checkpointer"]
+    assert isinstance(cp, InMemorySaver)
 
 
 def test_build_supervisor_multiple_distinct_specs() -> None:
