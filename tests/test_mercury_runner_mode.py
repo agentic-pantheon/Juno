@@ -28,6 +28,13 @@ def test_settings_mercury_runner_mode_from_env(monkeypatch: pytest.MonkeyPatch) 
     assert s.mercury_runner_mode == "local"
 
 
+def test_settings_mercury_runner_mode_juno_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MERCURY_RUNNER_MODE", raising=False)
+    monkeypatch.setenv("JUNO_MERCURY_RUNNER_MODE", "local")
+    s = Settings()
+    assert s.mercury_runner_mode == "local"
+
+
 def test_build_subagent_specs_http_mode_requires_base_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assistants = _copy_assistants(tmp_path)
     monkeypatch.delenv("MERCURY_BASE_URL", raising=False)

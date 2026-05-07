@@ -1,6 +1,8 @@
 # Juno
 
-Telegram bot service that runs a **LangChain** supervisor and delegates assistant work to **Mercury** over HTTP. Configure identity and assistants via YAML; point `MERCURY_BASE_URL` at a running Mercury API (or set the URL via the manifest’s `base_url_env`).
+Telegram bot service that runs a **LangChain** supervisor and delegates assistant work to **Mercury**: either **over HTTP** to a Mercury API (**`MERCURY_RUNNER_MODE=http`**, default) or **in-process** against the **`mercury` Python package** (**`MERCURY_RUNNER_MODE=local`**, single Juno process without a Mercury HTTP server). Configure identity and assistants via YAML.
+
+**Dependencies:** Juno pins **Python 3.12** (`requires-python` in [`pyproject.toml`](pyproject.toml)). The **`mercury`** package is wired as an **editable path dependency** to a sibling checkout at [`../mercury-agentic-wallet`](../mercury-agentic-wallet) (`[tool.uv.sources]`); adjust or replace that if your layout differs.
 
 ## Architecture
 
@@ -25,7 +27,7 @@ Juno discovers every `assistants/*.yaml` manifest, but **only Mercury is wired t
 
 3. **Register in the factory** — In [`src/juno/runtime/factory.py`](src/juno/runtime/factory.py), extend `build_subagent_specs` so that for each manifest you care about (or each `runner` value), you build the subgraph and append a [`SubagentSpec`](src/juno/agents/registry.py): a **unique** `name` (supervisor tool name), `description` (what the model sees), `graph`, `state_keys` to forward from session state (e.g. `user_id`, `wallet_id`, `chain`, `approval_response`), optional `resume_instruction` after human-in-the-loop, and `supports_wallet_approval_ui=True` **only** if the Telegram Approve/Decline flow applies.
 
-4. **Base URL** — Prefer `os.environ[manifest.base_url_env]` via `resolve_assistant_base_url`. If you need a Pydantic fallback like Mercury’s `MERCURY_BASE_URL`, extend [`resolve_assistant_base_url`](src/juno/runtime/factory.py) and add fields to [`Settings`](src/juno/settings.py) as needed.
+4. **Base URL** — For **`http`** Mercury runs, prefer `os.environ[manifest.base_url_env]` via `resolve_assistant_base_url`. If you need a Pydantic fallback like Mercury’s `MERCURY_BASE_URL`, extend [`resolve_assistant_base_url`](src/juno/runtime/factory.py) and add fields to [`Settings`](src/juno/settings.py) as needed. **`local`** mode does **not** use a Mercury base URL (see **Environment variables**).
 
 5. **Supervisor prompt** — `config/juno.supervisor.md` should tell the model **when** to call each tool by name; the runtime also appends each tool’s description from the `SubagentSpec` / LangChain tool metadata.
 
@@ -44,14 +46,26 @@ Relevant concepts and APIs:
 - [Streaming](https://docs.langchain.com/oss/python/langchain/streaming)
 - [Human-in-the-loop](https://docs.langchain.com/oss/python/langchain/human-in-the-loop)
 
-## Local development (two services)
+## Local development
 
-1. **Mercury** — run it from its own repository/service. Note its HTTP base URL (no trailing path segment).
+### Option A - Single process (`MERCURY_RUNNER_MODE=local`)
+
+Juno loads Mercury as a library and runs the invoke graph in-process (no separate Mercury HTTP service).
+
+- `uv sync` (ensures the editable `mercury` checkout is available at the path in `pyproject.toml`)
+- Copy `config/juno.identity.yaml.example` to `config/juno.identity.yaml` and edit as needed
+- Set **`MERCURY_RUNNER_MODE=local`** (or **`JUNO_MERCURY_RUNNER_MODE=local`**). You do **not** need **`MERCURY_BASE_URL`**.
+- You **still** need whatever **Mercury** expects for live chain work: wallet / **1Claw** (or equivalent) secrets, RPC or provider keys, and any other env vars documented for the **`mercury-agentic-wallet`** deployment you are exercising. Juno does not bypass those requirements.
+- Optional: `JUNO_CHECKPOINTER_DATABASE_URL` for persistent supervisor checkpoints (see below)
+
+### Option B - Two services (`MERCURY_RUNNER_MODE=http`, default)
+
+1. **Mercury** — run it from its own repository or service. Note its HTTP base URL (no trailing path segment).
 2. **Juno** — from this repo:
    - `uv sync`
    - Copy `config/juno.identity.yaml.example` to `config/juno.identity.yaml` and edit as needed
    - Optionally edit `config/juno.supervisor.md` (general supervisor behavior; concrete tool names and descriptions are appended automatically at startup)
-   - Set environment variables (see below), including `MERCURY_BASE_URL` pointing at Mercury
+   - Set **`MERCURY_BASE_URL`** (or the URL via the manifest’s `base_url_env`) to point at Mercury
    - Optional: set `JUNO_CHECKPOINTER_DATABASE_URL` for Postgres-backed supervisor checkpoints (see below); if unset, the supervisor uses an in-memory saver (fine for dev; state is lost on restart)
 
 ## Environment variables
@@ -59,7 +73,8 @@ Relevant concepts and APIs:
 | Variable | Purpose |
 |----------|---------|
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot API token |
-| `MERCURY_BASE_URL` | Mercury HTTP API base URL (required for Mercury-backed runs) |
+| `MERCURY_RUNNER_MODE` or `JUNO_MERCURY_RUNNER_MODE` | `http` (default): delegate to Mercury over HTTP. `local`: in-process Mercury graph (no `MERCURY_BASE_URL`) |
+| `MERCURY_BASE_URL` | Mercury HTTP API base URL (no trailing path). **Required when `MERCURY_RUNNER_MODE` is `http`**; **not used in `local` mode** |
 | `MERCURY_HTTP_PATH` | Default `/v1/mercury/invoke` (structured `intent` body). Use `/v1/agent` only for pan-agentikit envelopes |
 | `MERCURY_REQUEST_BODY_MODE` | Default `flat`. Use `nested_input` only if your server expects `{"input": {...}}` |
 | `OPENAI_API_KEY` | API key when using OpenAI-backed models; identity YAML `secrets.openai_api_key_env` names this (default `OPENAI_API_KEY`) |
