@@ -21,6 +21,8 @@ dependencies = [
     "langchain-openai",
     "langchain-groq",
     "python-telegram-bot>=21",
+    "langgraph-checkpoint-postgres",
+    "psycopg[binary,pool]",
 ]
 
 [dependency-groups]

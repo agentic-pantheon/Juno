@@ -69,3 +69,10 @@ class Settings(BaseSettings):
             "Default ``data/juno_long_term_memory`` relative to the process working directory."
         ),
     )
+    juno_checkpointer_database_url: str = Field(
+        default="",
+        description=(
+            "Secret-bearing PostgreSQL DSN for supervisor checkpoint persistence; env ``JUNO_CHECKPOINTER_DATABASE_URL``. "
+            "When empty, an in-memory checkpointer fallback is used."
+        ),
+    )
