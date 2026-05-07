@@ -11,6 +11,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Mess
 
 from juno.identity import JunoIdentityNotFoundError, JunoIdentityValidationError, load_identity
 from juno.logging_config import configure_logging
+from juno.runtime.checkpointer import supervisor_checkpointer
 from juno.runtime.factory import build_supervisor_bundle
 from juno.settings import Settings
 from juno.telegram.handlers import (
@@ -62,28 +63,29 @@ async def run_bot(settings: Settings | None = None) -> None:
 
     logger.info("Loaded identity agent_id=%s display_name=%s", identity.agent_id, identity.display_name)
 
-    bundle = build_supervisor_bundle(settings)
-    application = Application.builder().token(settings.telegram_bot_token.strip()).build()
-    application.bot_data["supervisor"] = bundle.graph
-    application.bot_data["wallet_approval_supervisor_tools"] = bundle.wallet_approval_supervisor_tool_names
-    application.bot_data["settings"] = settings
+    with supervisor_checkpointer(settings) as cp:
+        bundle = build_supervisor_bundle(settings, checkpointer=cp)
+        application = Application.builder().token(settings.telegram_bot_token.strip()).build()
+        application.bot_data["supervisor"] = bundle.graph
+        application.bot_data["wallet_approval_supervisor_tools"] = bundle.wallet_approval_supervisor_tool_names
+        application.bot_data["settings"] = settings
 
-    application.add_handler(CommandHandler("start", cmd_start))
-    application.add_handler(CommandHandler("chain", cmd_chain))
-    application.add_handler(CommandHandler("wallet", cmd_wallet))
-    application.add_handler(CommandHandler("session", cmd_session))
-    application.add_handler(CommandHandler("session_clear", cmd_session_clear))
-    application.add_handler(CallbackQueryHandler(handle_approval_callback, pattern=r"^apr:"))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+        application.add_handler(CommandHandler("start", cmd_start))
+        application.add_handler(CommandHandler("chain", cmd_chain))
+        application.add_handler(CommandHandler("wallet", cmd_wallet))
+        application.add_handler(CommandHandler("session", cmd_session))
+        application.add_handler(CommandHandler("session_clear", cmd_session_clear))
+        application.add_handler(CallbackQueryHandler(handle_approval_callback, pattern=r"^apr:"))
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    async with application:
-        await application.start()
-        await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
-        try:
-            await _wait_for_shutdown()
-        finally:
-            await application.updater.stop()
-            await application.stop()
+        async with application:
+            await application.start()
+            await application.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+            try:
+                await _wait_for_shutdown()
+            finally:
+                await application.updater.stop()
+                await application.stop()
 
 
 def main() -> None:
