@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from juno.agents import build_mercury_subagent, build_supervisor, default_mercury_subagent_spec
@@ -68,7 +69,10 @@ def build_subagent_specs(settings: Settings) -> list[SubagentSpec]:
     return [default_mercury_subagent_spec(sub)]
 
 
-def build_supervisor_bundle(settings: Settings) -> SupervisorBundle:
+def build_supervisor_bundle(
+    settings: Settings,
+    checkpointer: BaseCheckpointSaver | None = None,
+) -> SupervisorBundle:
     """Load manifests, build sub-agents and supervisor once; includes approval-ui metadata."""
     specs = build_subagent_specs(settings)
     graph = build_supervisor(
@@ -76,6 +80,7 @@ def build_supervisor_bundle(settings: Settings) -> SupervisorBundle:
         subagents=specs,
         supervisor_prompt_path=settings.juno_supervisor_prompt_path,
         long_term_memory_dir=settings.juno_long_term_memory_dir,
+        checkpointer=checkpointer,
     )
     return SupervisorBundle(
         graph=graph,

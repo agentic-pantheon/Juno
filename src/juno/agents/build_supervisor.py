@@ -14,6 +14,7 @@ from langchain.tools import ToolRuntime, tool
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
@@ -158,6 +159,7 @@ def build_supervisor(
     supervisor_prompt_path: Path | None = None,
     system_prompt: str | None = None,
     inject_tools_context: bool = True,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
     """Build the top-level supervisor with checkpointed state and specialist tools.
 
@@ -195,7 +197,7 @@ def build_supervisor(
         model=model,
         tools=tools,
         system_prompt=prompt,
-        checkpointer=InMemorySaver(),
+        checkpointer=checkpointer if checkpointer is not None else InMemorySaver(),
         state_schema=CustomAgentState,
         middleware=memory_middleware,
     )

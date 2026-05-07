@@ -52,6 +52,7 @@ Relevant concepts and APIs:
    - Copy `config/juno.identity.yaml.example` to `config/juno.identity.yaml` and edit as needed
    - Optionally edit `config/juno.supervisor.md` (general supervisor behavior; concrete tool names and descriptions are appended automatically at startup)
    - Set environment variables (see below), including `MERCURY_BASE_URL` pointing at Mercury
+   - Optional: set `JUNO_CHECKPOINTER_DATABASE_URL` for Postgres-backed supervisor checkpoints (see below); if unset, the supervisor uses an in-memory saver (fine for dev; state is lost on restart)
 
 ## Environment variables
 
@@ -69,8 +70,25 @@ Relevant concepts and APIs:
 | `JUNO_SUPERVISOR_PROMPT_PATH` | Override path to the supervisor Markdown prompt (default: `config/juno.supervisor.md` under the working directory) |
 | `JUNO_USE_STREAM` | If set truthy, sends periodic typing while the supervisor runs |
 | `JUNO_LONGTERM_MEMORY_DIR` | Per-user long-term memory JSON directory; defaults to `data/juno_long_term_memory` under the process working directory |
+| `JUNO_CHECKPOINTER_DATABASE_URL` | PostgreSQL DSN for LangGraph supervisor checkpoints; empty uses the in-memory fallback (non-persistent). See **Supervisor checkpoints** |
 
 Optional: `.env` in the project root is loaded into the process environment at bot startup (`load_dotenv`) so provider SDKs (Groq, OpenAI, etc.) see keys like `GROQ_API_KEY`; Pydantic Settings also reads the same file for app fields.
+
+### Supervisor checkpoints (optional)
+
+- **DSN** — Standard libpq URI, e.g. `postgresql://USER:PASSWORD@HOST:5432/DBNAME` (query params such as `sslmode=require` are supported).
+- **TLS** — For hosted Postgres, prefer `sslmode=require` (or `verify-full` when you have CA material) in the URL rather than plaintext connections.
+- **Credentials** — Use a dedicated DB role with minimal privileges (only what LangGraph’s Postgres saver needs for its tables/migrations). Do **not** reuse superuser or application roles that own unrelated data.
+- **Secrets** — Treat the DSN like a password: never log it, avoid echoing env in shell history for production values, and do not commit `.env` or URLs containing credentials.
+- **Unset** — If `JUNO_CHECKPOINTER_DATABASE_URL` is unset or whitespace-only after trim, Juno uses `InMemorySaver` (no Postgres).
+
+Local Postgres without Compose:
+
+```bash
+docker run --rm -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
+```
+
+Then point Juno at `postgresql://postgres:postgres@127.0.0.1:5432/postgres` (create a dedicated database/user for real use).
 
 ## Run
 
