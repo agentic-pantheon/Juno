@@ -23,14 +23,20 @@ or inner dict (nested mode).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import time
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import httpx
 from langsmith import traceable
+from pydantic import ValidationError
+
+from mercury.graph.runtime import GraphRuntime
+from mercury.invoke import get_invoke_guide_markdown, invoke_mercury
+from mercury.service.errors import GraphInvocationError
+from mercury.service.models import MercuryInvokeRequest, MercuryInvokeResponse
 
 from juno.assistants.protocol import (
     AssistantTurnAgentError,
@@ -38,16 +44,25 @@ from juno.assistants.protocol import (
     AssistantTurnResult,
     parse_mercury_body,
 )
-from juno.logging_config import get_trace_id
 
 logger = logging.getLogger(__name__)
 
+# Matches Mercury FastAPI ``GET /v1/mercury/invoke/guide`` (see ``mercury.service.api``).
+_LOCAL_INVOKE_GUIDE_PATH = "/v1/mercury/invoke/guide"
 
-def _intent_kind_from_payload(payload: dict[str, Any]) -> str | None:
-    intent = payload.get("intent")
-    if isinstance(intent, dict) and intent.get("kind") is not None:
-        return str(intent.get("kind"))
-    return None
+
+@runtime_checkable
+class MercuryAssistantRunnerLike(Protocol):
+    """Minimal surface used by ``build_mercury_subagent``."""
+
+    def fetch_get_text(self, relative_path: str) -> str: ...
+
+    def run_turn(
+        self,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> AssistantTurnResult: ...
 
 
 def _response_to_result(response: httpx.Response) -> AssistantTurnResult:
@@ -108,6 +123,25 @@ def _map_http_error(response: httpx.Response) -> AssistantTurnHttpError:
     )
 
 
+def _local_response_to_result(response: MercuryInvokeResponse) -> AssistantTurnResult:
+    raw = response.model_dump(mode="json")
+    error = raw.get("error")
+    if isinstance(error, dict):
+        msg = error.get("message") or raw.get("message") or "Mercury request failed"
+        code = error.get("code")
+        details = error.get("details")
+        return AssistantTurnAgentError(
+            message=str(msg),
+            code=str(code) if code is not None else None,
+            details=details if isinstance(details, dict) else None,
+        )
+    status = raw.get("status")
+    if status in {"failed", "rejected"}:
+        msg = raw.get("message") or "Mercury request failed"
+        return AssistantTurnAgentError(message=str(msg), code=str(status))
+    return parse_mercury_body(raw)
+
+
 class MercuryAssistantRunner:
     """Sync/async runner for Mercury HTTP (configurable path and body shape)."""
 
@@ -161,8 +195,6 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None,
     ) -> AssistantTurnResult:
-        tid = get_trace_id()
-        kind = _intent_kind_from_payload(payload)
         url = f"{self.base_url}{self._http_path}"
         body = _json_body_for_request(
             payload,
@@ -171,28 +203,9 @@ class MercuryAssistantRunner:
         )
         rid = str(uuid.uuid4()) if self._send_x_request_id else None
         headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
-        logger.info(
-            "phase=mercury_http_start trace_id=%s path=%s x_request_id=%s intent_kind=%s idempotency=%s",
-            tid,
-            self._http_path,
-            rid,
-            kind,
-            idempotency_key is not None,
-        )
-        t0 = time.perf_counter()
         with httpx.Client(timeout=self.timeout_s, transport=self._transport) as client:
             response = client.post(url, json=body, headers=headers)
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        result = _response_to_result(response)
-        rkind = getattr(result, "kind", type(result).__name__)
-        logger.info(
-            "phase=mercury_http_end trace_id=%s duration_ms=%.1f http_status=%s result_kind=%s",
-            tid,
-            elapsed_ms,
-            response.status_code,
-            rkind,
-        )
-        return result
+        return _response_to_result(response)
 
     async def arun_turn(
         self,
@@ -200,8 +213,6 @@ class MercuryAssistantRunner:
         *,
         idempotency_key: str | None = None,
     ) -> AssistantTurnResult:
-        tid = get_trace_id()
-        kind = _intent_kind_from_payload(payload)
         url = f"{self.base_url}{self._http_path}"
         body = _json_body_for_request(
             payload,
@@ -210,27 +221,97 @@ class MercuryAssistantRunner:
         )
         rid = str(uuid.uuid4()) if self._send_x_request_id else None
         headers = _headers(idempotency_key=idempotency_key, x_request_id=rid)
-        logger.info(
-            "phase=mercury_http_async_start trace_id=%s path=%s x_request_id=%s intent_kind=%s",
-            tid,
-            self._http_path,
-            rid,
-            kind,
-        )
-        t0 = time.perf_counter()
         async with httpx.AsyncClient(timeout=self.timeout_s, transport=self._transport) as client:
             response = await client.post(url, json=body, headers=headers)
-        elapsed_ms = (time.perf_counter() - t0) * 1000.0
-        result = _response_to_result(response)
-        rkind = getattr(result, "kind", type(result).__name__)
-        logger.info(
-            "phase=mercury_http_async_end trace_id=%s duration_ms=%.1f http_status=%s result_kind=%s",
-            tid,
-            elapsed_ms,
-            response.status_code,
-            rkind,
-        )
-        return result
+        return _response_to_result(response)
+
+
+class LocalMercuryAssistantRunner:
+    """In-process Mercury runner using :func:`mercury.invoke.invoke_mercury`.
+
+    Surface matches :class:`MercuryAssistantRunner`: ``run_turn``, ``arun_turn``, and
+    ``fetch_get_text`` for invoke-guide markdown. Intended for local/editable Mercury;
+    factory wiring is handled separately.
+    """
+
+    def __init__(
+        self,
+        runtime: GraphRuntime,
+        *,
+        send_x_request_id: bool = True,
+    ) -> None:
+        self._runtime = runtime
+        self._send_x_request_id = send_x_request_id
+
+    def fetch_get_text(self, relative_path: str) -> str:
+        """Return invoke-guide Markdown for the native guide path; otherwise a fixed placeholder.
+
+        Unlike the HTTP runner, there is no GET server; paths other than
+        ``/v1/mercury/invoke/guide`` resolve to a deterministic ``(Local guide unavailable:…)``
+        message so middleware behavior stays predictable.
+        """
+        path = relative_path.strip()
+        if not path.startswith("/"):
+            path = "/" + path
+        if path.rstrip("/") == _LOCAL_INVOKE_GUIDE_PATH.rstrip("/"):
+            return get_invoke_guide_markdown()
+        return f"(Local guide unavailable: unsupported path {path})"
+
+    def run_turn(
+        self,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> AssistantTurnResult:
+        return _traced_local_mercury_run_turn(self, payload, idempotency_key=idempotency_key)
+
+    def _execute_local_turn(
+        self,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str | None,
+    ) -> AssistantTurnResult:
+        body = dict(payload)
+        if idempotency_key is not None:
+            body.setdefault("idempotency_key", idempotency_key)
+        try:
+            request = MercuryInvokeRequest.model_validate(body)
+        except ValidationError as exc:
+            return AssistantTurnAgentError(
+                message="Mercury request validation failed",
+                code="validation_error",
+                details={"errors": exc.errors()},
+            )
+        rid = str(uuid.uuid4()) if self._send_x_request_id else None
+        try:
+            response = invoke_mercury(
+                self._runtime,
+                request,
+                x_request_id=rid,
+                idempotency_key=idempotency_key,
+            )
+        except GraphInvocationError as exc:
+            return AssistantTurnAgentError(
+                message=str(exc) if str(exc) else "Mercury graph invocation failed",
+                code=GraphInvocationError.error_code,
+                details=None,
+            )
+        except Exception as exc:
+            logger.exception("Mercury local invocation failed")
+            return AssistantTurnAgentError(
+                message="Mercury invocation failed unexpectedly",
+                code="internal_error",
+                details={"error_type": type(exc).__name__},
+            )
+        return _local_response_to_result(response)
+
+    async def arun_turn(
+        self,
+        payload: dict[str, Any],
+        *,
+        idempotency_key: str | None = None,
+    ) -> AssistantTurnResult:
+        return await asyncio.to_thread(self.run_turn, payload, idempotency_key=idempotency_key)
 
 
 @traceable(run_type="tool", name="mercury_http")
@@ -243,4 +324,14 @@ def _traced_mercury_run_turn(
     return runner._execute_sync_turn(payload, idempotency_key=idempotency_key)
 
 
-__all__ = ["MercuryAssistantRunner"]
+@traceable(run_type="tool", name="mercury_local")
+def _traced_local_mercury_run_turn(
+    runner: LocalMercuryAssistantRunner,
+    payload: dict[str, Any],
+    *,
+    idempotency_key: str | None = None,
+) -> AssistantTurnResult:
+    return runner._execute_local_turn(payload, idempotency_key=idempotency_key)
+
+
+__all__ = ["LocalMercuryAssistantRunner", "MercuryAssistantRunner", "MercuryAssistantRunnerLike"]

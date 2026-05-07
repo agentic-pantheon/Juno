@@ -6,8 +6,14 @@ import asyncio
 import logging
 import signal
 
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, MessageHandler, filters
+
+# Pydantic Settings reads ``.env`` for Juno fields but does not populate
+# ``os.environ``. Mercury reads RPC/1Claw config from the environment, so load
+# ``.env`` before importing code that constructs Mercury.
+load_dotenv(".env", override=True)
 
 from juno.identity import JunoIdentityNotFoundError, JunoIdentityValidationError, load_identity
 from juno.logging_config import configure_logging
@@ -89,11 +95,6 @@ async def run_bot(settings: Settings | None = None) -> None:
 
 
 def main() -> None:
-    # Pydantic Settings reads `.env` for its own fields but does not populate
-    # ``os.environ``; Groq/OpenAI clients expect API keys in the environment.
-    from dotenv import load_dotenv
-
-    load_dotenv()
     configure_logging()
     asyncio.run(run_bot())
 

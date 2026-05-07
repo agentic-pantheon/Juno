@@ -13,7 +13,8 @@ from langgraph.graph.state import CompiledStateGraph
 from juno.agents import build_mercury_subagent, build_supervisor, default_mercury_subagent_spec
 from juno.agents.registry import SubagentSpec
 from juno.assistants.loader import AssistantManifest, discover_assistants
-from juno.assistants.mercury_runner import MercuryAssistantRunner
+from juno.assistants.mercury_runner import LocalMercuryAssistantRunner, MercuryAssistantRunner
+from juno.runtime.mercury_graph_runtime_factory import build_mercury_graph_runtime_for_local
 from juno.settings import Settings
 
 
@@ -55,12 +56,16 @@ def build_subagent_specs(settings: Settings) -> list[SubagentSpec]:
         raise ValueError(
             f"Expected runner 'mercury' for assistants/mercury.yaml, got {mercury_manifest.runner!r}.",
         )
-    base_url = resolve_assistant_base_url(mercury_manifest, settings)
-    runner = MercuryAssistantRunner(
-        base_url,
-        http_path=settings.mercury_http_path,
-        request_body_mode=settings.mercury_request_body_mode,
-    )
+    if settings.mercury_runner_mode == "local":
+        runtime = build_mercury_graph_runtime_for_local()
+        runner = LocalMercuryAssistantRunner(runtime)
+    else:
+        base_url = resolve_assistant_base_url(mercury_manifest, settings)
+        runner = MercuryAssistantRunner(
+            base_url,
+            http_path=settings.mercury_http_path,
+            request_body_mode=settings.mercury_request_body_mode,
+        )
     sub = build_mercury_subagent(
         model=settings.openai_model,
         manifest=mercury_manifest,

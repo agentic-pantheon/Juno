@@ -1,4 +1,4 @@
-"""Mercury specialist sub-agent: tool that POSTs structured invokes via :class:`MercuryAssistantRunner`."""
+"""Mercury specialist sub-agent: tool that forwards structured invokes via a runner."""
 
 from __future__ import annotations
 
@@ -16,8 +16,7 @@ from juno.agents.mercury_payload import turn_result_to_tool_text
 from juno.agents.remote_guide_middleware import build_remote_invoke_guide_middleware
 from juno.agents.state import CustomAgentState
 from juno.assistants.loader import AssistantManifest
-from juno.assistants.mercury_runner import MercuryAssistantRunner
-from juno.logging_config import get_trace_id
+from juno.assistants.mercury_runner import MercuryAssistantRunnerLike
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +96,7 @@ def build_mercury_subagent(
     *,
     model: str | BaseChatModel,
     manifest: AssistantManifest,
-    runner: MercuryAssistantRunner,
+    runner: MercuryAssistantRunnerLike,
 ) -> CompiledStateGraph:
     """Build a LangChain agent whose only tool forwards structured Mercury invokes."""
     parts: list[str] = []
@@ -133,31 +132,15 @@ def build_mercury_subagent(
         try:
             intent = json.loads(intent_json)
         except json.JSONDecodeError as exc:
-            logger.info(
-                "phase=mercury_invoke_invalid_json trace_id=%s error=%s",
-                get_trace_id(),
-                exc,
-            )
             return f"Invalid intent JSON: {exc}"
         if not isinstance(intent, dict):
-            logger.info("phase=mercury_invoke_invalid trace_id=%s reason=not_object", get_trace_id())
             return "Intent must be a JSON object."
         if intent.get("kind") is None:
-            logger.info("phase=mercury_invoke_invalid trace_id=%s reason=missing_kind", get_trace_id())
             return 'Intent must include a string "kind" field.'
         intent_clean, idempotency_key = _sanitize_intent_for_mercury_post(intent)
         payload = _build_mercury_invoke_payload(state, intent_clean)
         result = runner.run_turn(payload, idempotency_key=idempotency_key)
-        text = turn_result_to_tool_text(result)
-        logger.info(
-            "phase=mercury_invoke_done trace_id=%s intent_kind=%s idempotency=%s result_kind=%s tool_text_len=%s",
-            get_trace_id(),
-            intent_clean.get("kind"),
-            idempotency_key is not None,
-            getattr(result, "kind", type(result).__name__),
-            len(text),
-        )
-        return text
+        return turn_result_to_tool_text(result)
 
     guide_path = (manifest.guide_path or "").strip()
     middleware: tuple[Any, ...] = ()

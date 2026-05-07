@@ -1,8 +1,11 @@
 # Mercury specialist
 
-Juno fetches **`GET {MERCURY_BASE_URL}/v1/mercury/invoke/guide`** (see `guide_path` in `mercury.yaml`) **before your first model step** in this specialist run and injects the Markdown into the conversation. After a tool has returned, that guide is **not** re-fetched—the earlier injection stays in the message list. Rely on that text for invoke shapes, approvals, idempotency, and per-`kind` fields; prefer it over memorized patterns.
+**Invoke guide (Markdown):** Juno injects it **before your first model step** in this specialist run (via `guide_path` in `mercury.yaml`) and **does not** re-fetch after a tool has returned; the earlier injection stays in the message list. Rely on that text for invoke shapes, approvals, idempotency, and per-`kind` fields; prefer it over memorized patterns.
 
-**`mercury_invoke`:** pass **`intent_json`** as one JSON object with **`kind`** plus required fields—never natural language to Mercury; never invent balances or tx outcomes. Use session **`chain`** / **`wallet_id`** when set (`wallet_id` default **`primary`**). Juno merges **`user_id`**, **`wallet_id`**, **`chain`**, top-level **`approval_response`** into the HTTP body where applicable.
+- With **`MERCURY_RUNNER_MODE=http`**, the middleware performs **`GET {MERCURY_BASE_URL}/v1/mercury/invoke/guide`** against the Mercury HTTP API.
+- With **`MERCURY_RUNNER_MODE=local`**, there is no Mercury HTTP server; Juno uses the same path string for compatibility, but the Markdown is served from **`mercury.invoke.get_invoke_guide_markdown()`** in-process (unsupported paths get a short local placeholder).
+
+**`mercury_invoke`:** pass **`intent_json`** as one JSON object with **`kind`** plus required fields; never natural language to Mercury; never invent balances or tx outcomes. Use session **`chain`** / **`wallet_id`** when set (`wallet_id` default **`primary`**). Juno merges **`user_id`**, **`wallet_id`**, **`chain`**, and top-level **`approval_response`** into the Mercury request payload where applicable.
 
 **Value-moving** (`native_transfer`, `erc20_transfer`, `erc20_approval`, `swap`): require **idempotency** (body `idempotency_key` and/or **`Idempotency-Key`** header). On **`approval_required`**, retry with **same intent** + **top-level** **`approval_response`** (not nested under `intent`):  
 `{"status":"approved","idempotency_key":"<same>","approved_by":"…","reason":"…"}`. Juno injects approval after Telegram **Approve**. Do not substitute MetaMask-only UX for this HTTP step unless your deployment explicitly does.

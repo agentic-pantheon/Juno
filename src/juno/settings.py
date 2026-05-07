@@ -36,11 +36,23 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("JUNO_MODEL", "OPENAI_MODEL"),
         description="Chat model id for LangChain agents; env ``JUNO_MODEL`` or ``OPENAI_MODEL``.",
     )
+    mercury_runner_mode: Literal["http", "local"] = Field(
+        default="http",
+        validation_alias=AliasChoices(
+            "mercury_runner_mode",
+            "MERCURY_RUNNER_MODE",
+            "JUNO_MERCURY_RUNNER_MODE",
+        ),
+        description=(
+            "Mercury assistant transport: ``http`` (remote API) or ``local`` (in-process graph). "
+            "Env ``MERCURY_RUNNER_MODE`` or ``JUNO_MERCURY_RUNNER_MODE``."
+        ),
+    )
     mercury_base_url: str = Field(
         default="",
         description=(
             "Mercury HTTP API base URL (no trailing path); env ``MERCURY_BASE_URL``. "
-            "Required for real Mercury runs; empty is rejected at bot startup."
+            "Required when ``mercury_runner_mode`` is ``http``; ignored for ``local``."
         ),
     )
     mercury_http_path: str = Field(

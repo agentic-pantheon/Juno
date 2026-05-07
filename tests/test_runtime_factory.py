@@ -40,6 +40,7 @@ def test_resolve_assistant_base_url_empty_raises(monkeypatch: pytest.MonkeyPatch
 
 def test_build_subagent_specs_requires_mercury_yaml(tmp_path) -> None:
     s = Settings(
+        mercury_runner_mode="http",
         mercury_base_url="https://m.test",
         juno_assistants_dir=tmp_path,
     )
@@ -53,6 +54,7 @@ def test_build_supervisor_bundle_includes_wallet_approval_tool_names(tmp_path) -
     repo_assistants = Path(__file__).resolve().parents[1] / "assistants"
     shutil.copytree(repo_assistants, tmp_path / "assistants")
     s = Settings(
+        mercury_runner_mode="http",
         mercury_base_url="https://m.test",
         juno_assistants_dir=tmp_path / "assistants",
         juno_supervisor_prompt_path=Path(__file__).resolve().parents[1] / "config" / "juno.supervisor.md",
@@ -73,6 +75,7 @@ def test_build_supervisor_bundle_forwards_injected_checkpointer(tmp_path) -> Non
     repo_assistants = Path(__file__).resolve().parents[1] / "assistants"
     shutil.copytree(repo_assistants, tmp_path / "assistants")
     s = Settings(
+        mercury_runner_mode="http",
         mercury_base_url="https://m.test",
         juno_assistants_dir=tmp_path / "assistants",
         juno_supervisor_prompt_path=Path(__file__).resolve().parents[1] / "config" / "juno.supervisor.md",

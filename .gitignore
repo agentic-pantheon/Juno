@@ -6,6 +6,7 @@ __pycache__/
 .coverage
 htmlcov/
 .env
+.env.*
 data/juno_long_term_memory/
 scripts/print_juno_graph_mermaid.py
 juno_graphs.mmd
