@@ -59,6 +59,9 @@ def configure_logging() -> None:
     handler.setLevel(level)
     root.addHandler(handler)
 
+    for noisy in ("httpx", "httpcore"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
+
 
 __all__ = [
     "configure_logging",

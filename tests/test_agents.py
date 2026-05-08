@@ -143,6 +143,10 @@ def test_mercury_subagent_fetches_invoke_guide_once_before_tool_round() -> None:
 
     out = sub.invoke({"messages": [HumanMessage("user task")]}, _thread_config())
 
+    msg_types = [getattr(m, "type", None) for m in out["messages"]]
+    assert msg_types[0] == "system"
+    assert msg_types[1] == "human"
+
     get_guide_hits = sum(
         1 for method, path in captured if method == "GET" and path == "/v1/mercury/invoke/guide"
     )
