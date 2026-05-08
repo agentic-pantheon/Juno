@@ -78,6 +78,7 @@ Juno loads Mercury as a library and runs the invoke graph in-process (no separat
 | `JUNO_IDENTITY_PATH` | Path to identity YAML (optional; defaults apply if unset) |
 | `JUNO_ASSISTANTS_DIR` | Assistants definitions directory (optional) |
 | `JUNO_SUPERVISOR_PROMPT_PATH` | Override path to the supervisor Markdown prompt (default: `config/juno.supervisor.md` under the working directory) |
+| `JUNO_LOG_LEVEL` | Root log level (default **`DEBUG`**; use **`INFO`** or higher in production to reduce noise). Accepts standard `logging` level names (`DEBUG`, `INFO`, …) |
 | `JUNO_USE_STREAM` | If set truthy, sends periodic typing while the supervisor runs |
 | `JUNO_LONGTERM_MEMORY_DIR` | Per-user long-term memory JSON directory; defaults to `data/juno_long_term_memory` under the process working directory |
 | `JUNO_CHECKPOINTER_DATABASE_URL` | PostgreSQL DSN for LangGraph supervisor checkpoints; empty uses the in-memory fallback (non-persistent). See **Supervisor checkpoints** |

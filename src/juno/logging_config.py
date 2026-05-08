@@ -35,8 +35,8 @@ def _stderr_color_enabled() -> bool:
 
 def configure_logging() -> None:
     """Configure root logging once (Rich when TTY and color allowed, else plain StreamHandler)."""
-    level_name = os.environ.get("JUNO_LOG_LEVEL", "INFO").strip().upper() or "INFO"
-    level = getattr(logging, level_name, logging.INFO)
+    level_name = os.environ.get("JUNO_LOG_LEVEL", "DEBUG").strip().upper() or "DEBUG"
+    level = getattr(logging, level_name, logging.DEBUG)
 
     root = logging.getLogger()
     root.handlers.clear()
