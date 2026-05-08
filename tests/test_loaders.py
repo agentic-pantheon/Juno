@@ -25,14 +25,19 @@ def test_load_identity_missing() -> None:
         load_identity(_REPO_ROOT / "config" / "nonexistent.identity.yaml")
 
 
-def test_discover_assistants_mercury() -> None:
-    manifests = discover_assistants(_REPO_ROOT / "assistants")
-    assert "mercury" in manifests
-    m: AssistantManifest = manifests["mercury"]
-    assert m.runner == "mercury"
-    assert m.base_url_env == "MERCURY_BASE_URL"
+def test_discover_assistants_with_sidecar_markdown(tmp_path: Path) -> None:
+    (tmp_path / "alpha.yaml").write_text(
+        "runner: custom\nbase_url_env: ALPHA_BASE\nsystem_prompt: ''\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "alpha.md").write_text("# Specialist Alpha\nRuns sample tasks.", encoding="utf-8")
+    manifests = discover_assistants(tmp_path)
+    assert "alpha" in manifests
+    m: AssistantManifest = manifests["alpha"]
+    assert m.runner == "custom"
+    assert m.base_url_env == "ALPHA_BASE"
     assert m.instructions_md is not None
-    assert "Mercury" in m.instructions_md
+    assert "Specialist Alpha" in m.instructions_md
 
 
 def test_load_supervisor_prompt_md() -> None:

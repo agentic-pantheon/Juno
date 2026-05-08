@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 
-# Matches ``approval_token='...'`` from :func:`juno.agents.mercury_payload.turn_result_to_tool_text`.
+# Matches ``approval_token='...'`` from Mercury's Juno specialist tool text formatter
+# (:func:`mercury.juno.tool_text.turn_result_to_tool_text`).
 _APPROVAL_TOKEN_SINGLE = re.compile(r"approval_token='([^']*)'")
 _APPROVAL_TOKEN_DOUBLE = re.compile(r'approval_token="([^"]*)"')
 _IDEM_KEY_JSON = re.compile(r'"idempotency_key"\s*:\s*"([^"]*)"')

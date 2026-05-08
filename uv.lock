@@ -529,7 +529,6 @@ dependencies = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langsmith" },
-    { name = "mercury" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -541,6 +540,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "mercury" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
 ]
@@ -554,7 +554,6 @@ requires-dist = [
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "langsmith", specifier = ">=0.7" },
-    { name = "mercury", editable = "../mercury-agentic-wallet" },
     { name = "psycopg", extras = ["binary", "pool"] },
     { name = "pydantic", specifier = ">=2" },
     { name = "pydantic-settings" },
@@ -566,6 +565,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "mercury", editable = "../mercury-agentic-wallet" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-asyncio", specifier = ">=0.24" },
 ]
@@ -761,10 +761,12 @@ version = "0.1.0"
 source = { editable = "../mercury-agentic-wallet" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyyaml" },
     { name = "typing-extensions" },
     { name = "uvicorn" },
     { name = "web3" },
@@ -773,17 +775,22 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
+    { name = "httpx", specifier = ">=0.27" },
+    { name = "juno", marker = "extra == 'juno'", editable = "." },
     { name = "langchain-core" },
     { name = "langgraph" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
+    { name = "pyyaml", specifier = ">=6" },
     { name = "typing-extensions" },
     { name = "uvicorn", specifier = ">=0.46.0" },
     { name = "web3", specifier = ">=7.15.0" },
 ]
+provides-extras = ["juno"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "juno", editable = "." },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },

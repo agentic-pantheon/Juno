@@ -13,10 +13,13 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.memory import InMemorySaver
 
-from juno.agents import build_mercury_subagent, build_supervisor, default_mercury_subagent_spec
+from juno.agents import build_supervisor
 from juno.agents.registry import SubagentSpec
-from juno.assistants.loader import AssistantManifest
-from juno.assistants.mercury_runner import MercuryAssistantRunner
+
+from mercury.juno.manifest import JunoAssistantManifest
+from mercury.juno.runners import MercuryAssistantRunner
+from mercury.juno.specs import default_mercury_subagent_spec
+from mercury.juno.subagent import build_mercury_juno_subagent
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _SUPERVISOR_PROMPT_PATH = _REPO_ROOT / "config" / "juno.supervisor.md"
@@ -35,7 +38,7 @@ def _thread_config() -> dict:
 
 def test_supervisor_no_tool_plain_done() -> None:
     model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
 
     def boom(request: httpx.Request) -> httpx.Response:
         raise AssertionError("Mercury should not be called")
@@ -46,7 +49,7 @@ def test_supervisor_no_tool_plain_done() -> None:
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=model, manifest=manifest, runner=runner)
     sup = build_supervisor(
         model=model,
         subagents=(default_mercury_subagent_spec(sub),),
@@ -70,7 +73,7 @@ def test_mercury_invoke_tool_surfaces_agent_reply() -> None:
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="Specialist")
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="Specialist")
 
     intent = json.dumps({"kind": "native_balance", "wallet_address": "0x123"})
     responses = [
@@ -88,7 +91,7 @@ def test_mercury_invoke_tool_surfaces_agent_reply() -> None:
         AIMessage(content="wrapped up."),
     ]
     model = FakeMessagesListChatModelWithTools(responses=responses)
-    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=model, manifest=manifest, runner=runner)
 
     out = sub.invoke({"messages": [HumanMessage("user task")]}, _thread_config())
     tool_contents = [m.content for m in out["messages"] if m.type == "tool"]
@@ -116,7 +119,7 @@ def test_mercury_subagent_fetches_invoke_guide_once_before_tool_round() -> None:
         http_path="/v1/mercury/invoke",
         request_body_mode="flat",
     )
-    manifest = AssistantManifest(
+    manifest = JunoAssistantManifest(
         runner="mercury",
         base_url_env="X",
         system_prompt="Specialist",
@@ -139,7 +142,7 @@ def test_mercury_subagent_fetches_invoke_guide_once_before_tool_round() -> None:
         AIMessage(content="wrapped up."),
     ]
     model = FakeMessagesListChatModelWithTools(responses=responses)
-    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=model, manifest=manifest, runner=runner)
 
     out = sub.invoke({"messages": [HumanMessage("user task")]}, _thread_config())
 
@@ -213,9 +216,9 @@ def test_supervisor_two_step_mercury_path() -> None:
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="Sub sys")
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="Sub sys")
 
-    sub = build_mercury_subagent(model=sub_model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=sub_model, manifest=manifest, runner=runner)
     sup = build_supervisor(
         model=super_model,
         subagents=(default_mercury_subagent_spec(sub),),
@@ -242,7 +245,7 @@ def test_supervisor_two_step_mercury_path() -> None:
 
 def test_build_supervisor_rejects_duplicate_subagent_names() -> None:
     model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
 
     runner = MercuryAssistantRunner(
         "https://unused.test",
@@ -250,7 +253,7 @@ def test_build_supervisor_rejects_duplicate_subagent_names() -> None:
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=model, manifest=manifest, runner=runner)
     dup = default_mercury_subagent_spec(sub)
     with pytest.raises(ValueError, match="Duplicate"):
         build_supervisor(
@@ -262,14 +265,14 @@ def test_build_supervisor_rejects_duplicate_subagent_names() -> None:
 
 def test_build_supervisor_passes_injected_checkpointer_to_create_agent() -> None:
     model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
     runner = MercuryAssistantRunner(
         "https://unused.test",
         transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"agent_reply": "ok"})),
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=model, manifest=manifest, runner=runner)
     injected = InMemorySaver()
     fake_graph = MagicMock()
     with patch("juno.agents.build_supervisor.create_agent", return_value=fake_graph) as mock_create:
@@ -285,14 +288,14 @@ def test_build_supervisor_passes_injected_checkpointer_to_create_agent() -> None
 
 def test_build_supervisor_defaults_checkpointer_to_in_memory_saver() -> None:
     model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
     runner = MercuryAssistantRunner(
         "https://unused.test",
         transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"agent_reply": "ok"})),
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=model, manifest=manifest, runner=runner)
     fake_graph = MagicMock()
     with patch("juno.agents.build_supervisor.create_agent", return_value=fake_graph) as mock_create:
         build_supervisor(
@@ -306,14 +309,14 @@ def test_build_supervisor_defaults_checkpointer_to_in_memory_saver() -> None:
 
 def test_build_supervisor_multiple_distinct_specs() -> None:
     model = FakeMessagesListChatModelWithTools(responses=[AIMessage(content="done")])
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="S")
     runner = MercuryAssistantRunner(
         "https://unused.test",
         transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"agent_reply": "ok"})),
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    sub = build_mercury_subagent(model=model, manifest=manifest, runner=runner)
+    sub = build_mercury_juno_subagent(model=model, manifest=manifest, runner=runner)
     specs = (
         default_mercury_subagent_spec(sub),
         SubagentSpec(

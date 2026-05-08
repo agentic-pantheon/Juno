@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "juno"
 version = "0.1.0"
-description = "Telegram-first LangChain supervisor with Mercury assistant runners"
+description = "Telegram-first LangChain supervisor with pluggable specialist assistants"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -23,17 +23,17 @@ dependencies = [
     "python-telegram-bot>=21",
     "langgraph-checkpoint-postgres",
     "psycopg[binary,pool]",
-    "mercury",
 ]
-
-[tool.uv.sources]
-mercury = { path = "../mercury-agentic-wallet", editable = true }
 
 [dependency-groups]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
+    "mercury",
 ]
+
+[tool.uv.sources]
+mercury = { path = "../mercury-agentic-wallet", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/juno"]

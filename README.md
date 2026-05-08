@@ -1,39 +1,33 @@
 # Juno
 
-Telegram bot service that runs a **LangChain** supervisor and delegates assistant work to **Mercury**: either **over HTTP** to a Mercury API (**`MERCURY_RUNNER_MODE=http`**, default) or **in-process** against the **`mercury` Python package** (**`MERCURY_RUNNER_MODE=local`**, single Juno process without a Mercury HTTP server). Configure identity and assistants via YAML.
+Telegram bot service that runs a **LangChain** supervisor and loads **specialist assistants** from installed Python packages via **`juno.assistants`** setuptools entry points. Deployments typically install **`mercury`** for the wallet specialist; **Mercury** chooses **HTTP** vs **in-process** invocation using **`MERCURY_RUNNER_MODE`** (read by the Mercury plugin). Configure identity via YAML.
 
-**Dependencies:** Juno pins **Python 3.12** (`requires-python` in [`pyproject.toml`](pyproject.toml)). The **`mercury`** package is wired as an **editable path dependency** to a sibling checkout at [`../mercury-agentic-wallet`](../mercury-agentic-wallet) (`[tool.uv.sources]`); adjust or replace that if your layout differs.
+**Dependencies:** Juno pins **Python 3.12** (`requires-python` in [`pyproject.toml`](pyproject.toml)). **Core Juno does not list Mercury** as a dependency. For local monorepo development, **`uv sync --group dev`** installs **Mercury** from the sibling checkout at [`../mercury-agentic-wallet`](../mercury-agentic-wallet) (`[tool.uv.sources]`). In production, **`pip install juno mercury`** (or your lockfile equivalent) is enough when you want Mercury.
 
 ## Architecture
 
-- **Supervisor** — `juno.agents.build_supervisor` registers one tool per **`SubagentSpec`** (stable names such as `mercury`).
-- **Runtime factory** — `juno.runtime.factory.build_supervisor_bundle` loads manifests, builds sub-agents, and exposes `wallet_approval_supervisor_tool_names` for Telegram.
+- **Plugins** — Packages register callables under setuptools group **`juno.assistants`**; [`juno.plugins.load_assistant_specs`](src/juno/plugins.py) discovers them. By default **all** installed plugins load; set **`JUNO_DISABLED_ASSISTANTS`** to skip by entry-point name (e.g. `mercury`).
+- **Supervisor** — [`juno.agents.build_supervisor`](src/juno/agents/build_supervisor.py) registers one tool per [`SubagentSpec`](src/juno/agents/registry.py) (stable names such as `mercury`).
+- **Runtime factory** — [`juno.runtime.factory.build_supervisor_bundle`](src/juno/runtime/factory.py) loads plugins, builds sub-agents, and exposes `wallet_approval_supervisor_tool_names` for Telegram.
+- **Optional YAML manifests** — [`juno.assistants.loader.discover_assistants`](src/juno/assistants/loader.py) can still load **`assistants/*.yaml`** for tooling or future host features; **assistant registration is not driven from these files** anymore.
 - **Telegram** — Thin `juno.telegram.bot` composes the app; handlers, turns, approval UI, and message helpers live under `juno.telegram.*`.
 - **Docs** — More detail: [docs/subagents.md](docs/subagents.md).
 
-## Adding another agent
+## Adding another assistant package
 
-Juno discovers every `assistants/*.yaml` manifest, but **only Mercury is wired today**. To add a second specialist end-to-end:
+1. In your package, implement a factory `create_plugin(ctx: JunoPluginContext) -> Sequence[SubagentSpec]` (or a single `SubagentSpec`). Use host-only context from [`JunoPluginContext`](src/juno/plugins.py); keep transport and specialist prompts inside your package.
+2. Register it in **`pyproject.toml`**:
 
-1. **Manifest** — Add `assistants/<agent>.yaml` (see `assistants/mercury.yaml`) with at least `runner`, `base_url_env`, `system_prompt`, and optional `prompt_md_path` / sibling `<agent>.md` for instructions. The manifest stem (`<agent>`) is the dict key in `discover_assistants()`.
+   ```toml
+   [project.entry-points."juno.assistants"]
+   my_assistant = "my_package.juno_plugin:create_plugin"
+   ```
 
-2. **Sub-agent graph** — Implement something like `build_<agent>_subagent(...)` under `src/juno/agents/` (pattern: `build_mercury_subagent`). It should return a compiled LangGraph agent whose tools talk to your backend.
+3. Ensure tool names in [`SubagentSpec`](src/juno/agents/registry.py) are **unique** across enabled plugins.
+4. **Remote invoke guide (optional)** — Specialists can use LangChain middleware from **`juno.agents.build_remote_invoke_guide_middleware`** so the model receives Markdown before the first LLM call (same pattern as Mercury's invoke guide).
+5. Add tests in your package for HTTP/local runners and `SubagentSpec` metadata; Juno’s tests cover discovery, disable list, and duplicates ([`tests/test_plugins.py`](tests/test_plugins.py)).
 
-   **Remote invoke guide (optional)** — If your backend exposes a GET endpoint with markdown or prose the model must read *before* it calls tools (same idea as Mercury’s `/v1/mercury/invoke/guide`):
-
-   - Set **`guide_path`** on the manifest (absolute path on that assistant’s base URL, e.g. `/v1/mercury/invoke/guide`). Omit it to disable the hook.
-   - In `build_<agent>_subagent`, after you have an HTTP client scoped to the assistant base URL, pass LangChain middleware from **`juno.agents.build_remote_invoke_guide_middleware`**: give it a zero-argument callable that performs the GET and returns the response body as text (Mercury uses `MercuryAssistantRunner.fetch_get_text(guide_path)`).
-   - Pass the returned middleware in **`create_agent(..., middleware=(...))`** alongside your tools. The hook runs **`before_model`**: it prepends one system message (guide first in the transcript) on the first model step in that sub-agent `invoke`, and **skips** further GETs once any `ToolMessage` is in the thread (later steps in the same invoke reuse the injected guide).
-
-3. **Register in the factory** — In [`src/juno/runtime/factory.py`](src/juno/runtime/factory.py), extend `build_subagent_specs` so that for each manifest you care about (or each `runner` value), you build the subgraph and append a [`SubagentSpec`](src/juno/agents/registry.py): a **unique** `name` (supervisor tool name), `description` (what the model sees), `graph`, `state_keys` to forward from session state (e.g. `user_id`, `wallet_id`, `chain`, `approval_response`), optional `resume_instruction` after human-in-the-loop, and `supports_wallet_approval_ui=True` **only** if the Telegram Approve/Decline flow applies.
-
-4. **Base URL** — For **`http`** Mercury runs, prefer `os.environ[manifest.base_url_env]` via `resolve_assistant_base_url`. If you need a Pydantic fallback like Mercury’s `MERCURY_BASE_URL`, extend [`resolve_assistant_base_url`](src/juno/runtime/factory.py) and add fields to [`Settings`](src/juno/settings.py) as needed. **`local`** mode does **not** use a Mercury base URL (see **Environment variables**).
-
-5. **Supervisor prompt** — `config/juno.supervisor.md` should tell the model **when** to call each tool by name; the runtime also appends each tool’s description from the `SubagentSpec` / LangChain tool metadata.
-
-6. **Tests** — Mirror `tests/test_agents.py`, `tests/test_runtime_factory.py`, and any HTTP/tool tests for the new backend.
-
-Mercury remains required for startup until you generalize `build_subagent_specs` (e.g. allow a deployment with only non-Mercury agents and adjust the mercury manifest check).
+See the **mercury-agentic-wallet** repository for the reference **`mercury`** plugin implementation.
 
 ## LangChain (Python OSS)
 
@@ -52,7 +46,7 @@ Relevant concepts and APIs:
 
 Juno loads Mercury as a library and runs the invoke graph in-process (no separate Mercury HTTP service).
 
-- `uv sync` (ensures the editable `mercury` checkout is available at the path in `pyproject.toml`)
+- `uv sync --group dev` (installs **`mercury`** from the editable path in **`pyproject.toml`** for pytest and local integration)
 - Copy `config/juno.identity.yaml.example` to `config/juno.identity.yaml` and edit as needed
 - Set **`MERCURY_RUNNER_MODE=local`** (or **`JUNO_MERCURY_RUNNER_MODE=local`**). You do **not** need **`MERCURY_BASE_URL`**.
 - You **still** need whatever **Mercury** expects for live chain work: wallet / **1Claw** (or equivalent) secrets, RPC or provider keys, and any other env vars documented for the **`mercury-agentic-wallet`** deployment you are exercising. Juno does not bypass those requirements.
@@ -62,7 +56,7 @@ Juno loads Mercury as a library and runs the invoke graph in-process (no separat
 
 1. **Mercury** — run it from its own repository or service. Note its HTTP base URL (no trailing path segment).
 2. **Juno** — from this repo:
-   - `uv sync`
+   - `uv sync --group dev`
    - Copy `config/juno.identity.yaml.example` to `config/juno.identity.yaml` and edit as needed
    - Optionally edit `config/juno.supervisor.md` (general supervisor behavior; concrete tool names and descriptions are appended automatically at startup)
    - Set **`MERCURY_BASE_URL`** (or the URL via the manifest’s `base_url_env`) to point at Mercury
@@ -73,7 +67,8 @@ Juno loads Mercury as a library and runs the invoke graph in-process (no separat
 | Variable | Purpose |
 |----------|---------|
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot API token |
-| `MERCURY_RUNNER_MODE` or `JUNO_MERCURY_RUNNER_MODE` | `http` (default): delegate to Mercury over HTTP. `local`: in-process Mercury graph (no `MERCURY_BASE_URL`) |
+| `JUNO_DISABLED_ASSISTANTS` | Comma-separated setuptools entry-point **names** under `juno.assistants` to skip (e.g. `mercury`) |
+| `MERCURY_RUNNER_MODE` or `JUNO_MERCURY_RUNNER_MODE` | Mercury plugin: **`http`** (default) calls a Mercury HTTP API; **`local`** runs the Mercury graph **in-process** (no **`MERCURY_BASE_URL`**). Ignored when Mercury plugin is disabled. |
 | `MERCURY_BASE_URL` | Mercury HTTP API base URL (no trailing path). **Required when `MERCURY_RUNNER_MODE` is `http`**; **not used in `local` mode** |
 | `MERCURY_HTTP_PATH` | Default `/v1/mercury/invoke` (structured `intent` body). Use `/v1/agent` only for pan-agentikit envelopes |
 | `MERCURY_REQUEST_BODY_MODE` | Default `flat`. Use `nested_input` only if your server expects `{"input": {...}}` |
@@ -133,5 +128,6 @@ The supervisor is prompted to call Mercury for balance/on-chain questions; these
 ## Tests
 
 ```bash
+uv sync --group dev
 uv run pytest
 ```
