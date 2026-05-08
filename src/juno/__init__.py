@@ -1,4 +1,4 @@
-"""Juno: Telegram-first LangChain supervisor with Mercury runners."""
+"""Juno: Telegram-first LangChain supervisor with pluggable specialist assistants."""
 
 from juno.assistants import (
     AssistantManifest,

@@ -69,6 +69,14 @@ class Settings(BaseSettings):
             "nested_input: wrap as {input: dict}. Env MERCURY_REQUEST_BODY_MODE."
         ),
     )
+    juno_disabled_assistants: str = Field(
+        default="",
+        validation_alias=AliasChoices("JUNO_DISABLED_ASSISTANTS", "juno_disabled_assistants"),
+        description=(
+            "Comma-separated ``juno.assistants`` entry-point names to skip (e.g. ``mercury``). "
+            "Env ``JUNO_DISABLED_ASSISTANTS``."
+        ),
+    )
     juno_use_stream: bool = Field(
         default=False,
         description="If true, send periodic typing while the supervisor runs; env ``JUNO_USE_STREAM``.",

@@ -12,9 +12,12 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from juno.agents import build_mercury_subagent, build_supervisor, default_mercury_subagent_spec
-from juno.assistants.loader import AssistantManifest
-from juno.assistants.mercury_runner import MercuryAssistantRunner
+from juno.agents import build_supervisor
+
+from mercury.juno.manifest import JunoAssistantManifest
+from mercury.juno.runners import MercuryAssistantRunner
+from mercury.juno.specs import default_mercury_subagent_spec
+from mercury.juno.subagent import build_mercury_juno_subagent
 from juno.memory import UserMemoryProfile, format_user_memory_for_prompt, load_user_memory, merge_user_memory, save_user_memory
 from juno.memory.store import memory_file_path
 
@@ -191,8 +194,8 @@ def test_supervisor_update_user_memory_persists_profile_json(tmp_path: Path) -> 
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="Sub")
-    sub = build_mercury_subagent(
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="Sub")
+    sub = build_mercury_juno_subagent(
         model=FakeMessagesListChatModelWithTools(responses=[AIMessage(content="noop")]),
         manifest=manifest,
         runner=runner,
@@ -267,8 +270,8 @@ def test_long_term_memory_middleware_injects_profile_with_default_and_saved_fiel
         http_path="/v1/agent",
         request_body_mode="flat",
     )
-    manifest = AssistantManifest(runner="mercury", base_url_env="X", system_prompt="Sub")
-    sub = build_mercury_subagent(
+    manifest = JunoAssistantManifest(runner="mercury", base_url_env="X", system_prompt="Sub")
+    sub = build_mercury_juno_subagent(
         model=FakeMessagesListChatModelWithTools(responses=[AIMessage(content="noop")]),
         manifest=manifest,
         runner=runner,
