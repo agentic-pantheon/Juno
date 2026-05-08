@@ -2,7 +2,7 @@
 
 Telegram bot service that runs a **LangChain** supervisor and loads **specialist assistants** from installed Python packages via **`juno.assistants`** setuptools entry points. Deployments typically install **`mercury`** for the wallet specialist; **Mercury** chooses **HTTP** vs **in-process** invocation using **`MERCURY_RUNNER_MODE`** (read by the Mercury plugin). Configure identity via YAML.
 
-**Dependencies:** Juno pins **Python 3.12** (`requires-python` in [`pyproject.toml`](pyproject.toml)). **Core Juno does not list Mercury** as a dependency. For local monorepo development, **`uv sync --group dev`** installs **Mercury** from the sibling checkout at [`../mercury-agentic-wallet`](../mercury-agentic-wallet) (`[tool.uv.sources]`). In production, **`pip install juno mercury`** (or your lockfile equivalent) is enough when you want Mercury.
+**Dependencies:** Juno supports **Python 3.12 and 3.13** (`requires-python` in [`pyproject.toml`](pyproject.toml)). **Core Juno does not list Mercury** as a dependency. For local monorepo development, **`uv sync --group dev`** installs **Mercury** from the sibling checkout at [`../mercury-agentic-wallet`](../mercury-agentic-wallet) (`[tool.uv.sources]`). In production, **`pip install juno mercury`** (or your lockfile equivalent) is enough when you want Mercury.
 
 ## Architecture
 

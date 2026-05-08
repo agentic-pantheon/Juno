@@ -7,7 +7,7 @@ name = "juno"
 version = "0.1.0"
 description = "Telegram-first LangChain supervisor with pluggable specialist assistants"
 readme = "README.md"
-requires-python = ">=3.12,<3.13"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "langchain",
     "langgraph",
