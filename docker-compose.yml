@@ -1,0 +1,28 @@
+# PostgreSQL for LangGraph supervisor checkpoints (JUNO_CHECKPOINTER_DATABASE_URL).
+# Example DSN: postgresql://juno:juno@127.0.0.1:5432/juno_checkpointer
+
+services:
+  checkpointer-postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${JUNO_CHECKPOINTER_PG_USER:-juno}
+      POSTGRES_PASSWORD: ${JUNO_CHECKPOINTER_PG_PASSWORD:-juno}
+      POSTGRES_DB: ${JUNO_CHECKPOINTER_PG_DATABASE:-juno_checkpointer}
+    ports:
+      - "${JUNO_CHECKPOINTER_PG_PORT:-5432}:5432"
+    volumes:
+      - juno_checkpointer_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  juno_checkpointer_pgdata:
