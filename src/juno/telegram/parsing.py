@@ -39,7 +39,19 @@ def extract_approval_correlation_id(text: str) -> str | None:
     return extract_idempotency_key(text) or extract_approval_token(text)
 
 
+def approved_idempotency_key_from_telegram_pending(value: str) -> str | None:
+    """Parse ``approved:<key>`` from pending approval state (callback → supervisor turn)."""
+    if not value:
+        return None
+    lower = value.strip().lower()
+    if lower.startswith("approved:"):
+        rest = value.split(":", 1)[1].strip()
+        return rest or None
+    return None
+
+
 __all__ = [
+    "approved_idempotency_key_from_telegram_pending",
     "extract_approval_correlation_id",
     "extract_approval_token",
     "extract_idempotency_key",

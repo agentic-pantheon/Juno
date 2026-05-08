@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import html
 import re
+import uuid
 from typing import Any
 
 from telegram import Bot, Message
@@ -292,6 +294,142 @@ async def bot_edit_user_text_markdown_v2_safe(
         )
 
 
+# --- Rich Markdown-ish → HTML (tests / callers); broader than model_markdown_like_to_telegram_html ---
+
+_HTML_STASH_RE = re.compile("\u2063([0-9a-f]{32})\u2063")
+
+
+def _html_stash(stash_map: dict[str, str], content: str) -> str:
+    token = f"\u2063{uuid.uuid4().hex}\u2063"
+    stash_map[token] = content
+    return token
+
+
+def _tg_is_table_row(line: str) -> bool:
+    s = line.strip()
+    return s.count("|") >= 2
+
+
+def _tg_is_separator_row(line: str) -> bool:
+    s = line.strip()
+    return bool(s) and bool(re.fullmatch(r"[|\s:\-]+", s)) and "-" in s
+
+
+def _tg_apply_pipe_tables(text: str, stash_map: dict[str, str]) -> str:
+    lines = text.split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if _tg_is_table_row(lines[i]) and (
+            (i + 1 < len(lines) and _tg_is_separator_row(lines[i + 1]))
+            or (i + 1 < len(lines) and _tg_is_table_row(lines[i + 1]))
+        ):
+            block: list[str] = []
+            while i < len(lines) and _tg_is_table_row(lines[i]):
+                block.append(lines[i])
+                i += 1
+            joined = "\n".join(block)
+            out.append(
+                _html_stash(
+                    stash_map,
+                    "<pre>" + html.escape(joined) + "</pre>",
+                ),
+            )
+            continue
+        out.append(lines[i])
+        i += 1
+    return "\n".join(out)
+
+
+def _tg_apply_code_bold_italic(segment: str, inline_stash: dict[str, str]) -> str:
+    def stash(inner: str) -> str:
+        return _html_stash(inline_stash, inner)
+
+    s = segment
+    s = re.sub(
+        r"(?<!`)`([^`\n]+)`(?!`)",
+        lambda m: stash("<code>" + html.escape(m.group(1)) + "</code>"),
+        s,
+    )
+    s = re.sub(
+        r"\*\*([^*]+)\*\*",
+        lambda m: stash("<b>" + html.escape(m.group(1)) + "</b>"),
+        s,
+    )
+    s = re.sub(
+        r"__([^_]+)__",
+        lambda m: stash("<b>" + html.escape(m.group(1)) + "</b>"),
+        s,
+    )
+    s = re.sub(
+        r"(?<!\*)\*([^*\n]+)\*(?!\*)",
+        lambda m: stash("<i>" + html.escape(m.group(1)) + "</i>"),
+        s,
+    )
+    return s
+
+
+def _tg_commit_stashes(s: str, stash_map: dict[str, str]) -> str:
+    s = html.escape(s)
+    for key, frag in stash_map.items():
+        s = s.replace(key, frag)
+    return s
+
+
+def _tg_format_plain_segment(segment: str) -> str:
+    if not segment:
+        return segment
+    inline_stash: dict[str, str] = {}
+
+    def stash(inner: str) -> str:
+        return _html_stash(inline_stash, inner)
+
+    def link_repl(m: re.Match[str]) -> str:
+        url = m.group(2).strip()
+        if not url.startswith(("http://", "https://")):
+            return m.group(0)
+        lab_stash: dict[str, str] = {}
+        labeled = _tg_apply_code_bold_italic(m.group(1), lab_stash)
+        labeled = _tg_commit_stashes(labeled, lab_stash)
+        safe_url = html.escape(url, quote=True)
+        return stash(f'<a href="{safe_url}">{labeled}</a>')
+
+    s = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", link_repl, segment)
+    s = _tg_apply_code_bold_italic(s, inline_stash)
+    return _tg_commit_stashes(s, inline_stash)
+
+
+def _tg_interleave_stashes(text: str, stash_map: dict[str, str]) -> str:
+    parts = _HTML_STASH_RE.split(text)
+    out: list[str] = []
+    for i, part in enumerate(parts):
+        if i % 2 == 0:
+            out.append(_tg_format_plain_segment(part))
+        else:
+            token = f"\u2063{part}\u2063"
+            out.append(stash_map.get(token, html.escape(token)))
+    return "".join(out)
+
+
+def to_telegram_html(text: str) -> str:
+    """Best-effort GFM-ish Markdown → Telegram HTML. Tables become monospace <pre> blocks."""
+    if not text:
+        return ""
+    stash_map: dict[str, str] = {}
+    s = text.replace("\r\n", "\n")
+    s = re.sub(
+        r"```(?:[\w-]*\n)?(.*?)```",
+        lambda m: _html_stash(
+            stash_map,
+            "<pre>" + html.escape((m.group(1) or "").rstrip("\n")) + "</pre>",
+        ),
+        s,
+        flags=re.DOTALL,
+    )
+    s = _tg_apply_pipe_tables(s, stash_map)
+    return _tg_interleave_stashes(s, stash_map)
+
+
 __all__ = [
     "TELEGRAM_MAX_MESSAGE_LENGTH_CHARS",
     "bold_md_v2",
@@ -316,4 +454,5 @@ __all__ = [
     "send_message_markdown_v2",
     "send_message_plain",
     "send_user_text_markdown_v2_safe",
+    "to_telegram_html",
 ]

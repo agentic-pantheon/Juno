@@ -28,7 +28,10 @@ from juno.telegram.approval_ui import (
 from juno.telegram.errors import format_agent_error
 from juno.telegram.formatting import send_assistant_reply_html_safe
 from juno.telegram.messages import final_ai_content, messages_blob_for_approval
-from juno.telegram.parsing import extract_approval_correlation_id
+from juno.telegram.parsing import (
+    approved_idempotency_key_from_telegram_pending,
+    extract_approval_correlation_id,
+)
 from juno.telegram.session import get_chat_session
 
 logger = logging.getLogger(__name__)
@@ -85,7 +88,7 @@ async def execute_supervisor_turn(
     user_text: str,
     reply_to_message_id: int | None = None,
 ) -> None:
-    """Run one supervisor invoke and send the reply (and optional approval keyboard)."""
+    """Run one supervisor graph invocation and send the reply (and optional approval keyboard)."""
     trace_id = uuid.uuid4().hex
     user_id = str(user.id) if user else None
     supervisor: CompiledStateGraph = application.bot_data["supervisor"]
@@ -101,7 +104,19 @@ async def execute_supervisor_turn(
 
     messages: list[Any] = []
     if had_approval_merge:
-        messages.append(SystemMessage(content=TELEGRAM_AFTER_APPROVE_SYSTEM))
+        sys_after = TELEGRAM_AFTER_APPROVE_SYSTEM
+        if approval_val:
+            bound_idem = approved_idempotency_key_from_telegram_pending(approval_val)
+            if bound_idem:
+                sys_after += (
+                    "\n\nThe Telegram approval is bound to idempotency_key `"
+                    + bound_idem
+                    + "`. The specialist's mercury_invoke MUST use exactly `\"idempotency_key\": \""
+                    + bound_idem
+                    + "\"` inside the flat intent JSON (same object as `\"kind\": \"swap\"`, …). "
+                    "Ignore any different idempotency key mentioned in the user message."
+                )
+        messages.append(SystemMessage(content=sys_after))
     messages.append(HumanMessage(content=user_text))
 
     inp: dict[str, Any] = {
