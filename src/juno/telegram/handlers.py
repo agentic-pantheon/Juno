@@ -8,6 +8,12 @@ from telegram.ext import ContextTypes
 
 from juno.telegram.approval_state import get_last_approval_token, set_pending_approval
 from juno.telegram.approval_ui import MERCURY_INLINE_CONTINUE_TEXT, approval_state_value
+from juno.telegram.formatting import (
+    escape_md_v2,
+    inline_code_md_v2,
+    reply_text_markdown_v2,
+    reply_user_text_markdown_v2_safe,
+)
 from juno.telegram.session import clear_chat_session, get_chat_session
 from juno.telegram.turn import execute_supervisor_turn
 
@@ -16,12 +22,15 @@ logger = logging.getLogger(__name__)
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.message:
-        await update.message.reply_text(
-            "Juno routes on-chain and account questions through Mercury (real backend data).\n\n"
-            "• Send any message to chat.\n"
-            "• Optional: /chain base (or ethereum, …) and /wallet 0x… so Mercury gets context.\n"
-            "• /session shows saved chain/wallet; /session_clear resets them.\n"
-            "• If wallet approval is required, tap Approve or Decline — Juno continues automatically.",
+        await reply_user_text_markdown_v2_safe(
+            update.message,
+            raw_text=(
+                "Juno routes on-chain and account questions through Mercury (real backend data).\n\n"
+                "• Send any message to chat.\n"
+                "• Optional: /chain base (or ethereum, …) and /wallet 0x… so Mercury gets context.\n"
+                "• /session shows saved chain/wallet; /session_clear resets them.\n"
+                "• If wallet approval is required, tap Approve or Decline — Juno continues automatically."
+            ),
         )
 
 
@@ -33,12 +42,20 @@ async def cmd_chain(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     sess = get_chat_session(context.application.bot_data, chat_id)
     if not args:
         cur = sess["chain"] or "not set"
-        await update.message.reply_text(
-            f"Current chain: `{cur}`.\nUsage: `/chain base` (or another network name).",
+        await reply_text_markdown_v2(
+            update.message,
+            escape_md_v2("Current chain: ")
+            + inline_code_md_v2(cur)
+            + escape_md_v2("\nUsage: /chain base (or another network name)."),
         )
         return
     sess["chain"] = " ".join(args).strip().lower()
-    await update.message.reply_text(f"Chain set to `{sess['chain']}`. Mercury will see this on the next message.")
+    await reply_text_markdown_v2(
+        update.message,
+        escape_md_v2("Chain set to ")
+        + inline_code_md_v2(sess["chain"])
+        + escape_md_v2(". Mercury will see it on the next message."),
+    )
 
 
 async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -49,12 +66,18 @@ async def cmd_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     sess = get_chat_session(context.application.bot_data, chat_id)
     if not args:
         cur = sess["wallet_id"] or "not set"
-        await update.message.reply_text(
-            f"Current wallet: `{cur}`.\nUsage: `/wallet 0x…`",
+        await reply_text_markdown_v2(
+            update.message,
+            escape_md_v2("Current wallet: ")
+            + inline_code_md_v2(cur)
+            + escape_md_v2("\nUsage: /wallet 0x…"),
         )
         return
     sess["wallet_id"] = args[0].strip()
-    await update.message.reply_text("Wallet saved. Mercury will see it on the next message.")
+    await reply_user_text_markdown_v2_safe(
+        update.message,
+        raw_text="Wallet saved. Mercury will see it on the next message.",
+    )
 
 
 async def cmd_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -62,10 +85,13 @@ async def cmd_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         return
     chat_id = update.effective_chat.id
     sess = get_chat_session(context.application.bot_data, chat_id)
-    await update.message.reply_text(
-        "Session for this chat:\n"
-        f"• chain: `{sess['chain'] or '—'}`\n"
-        f"• wallet_id: `{sess['wallet_id'] or '—'}`",
+    await reply_text_markdown_v2(
+        update.message,
+        escape_md_v2("Session for this chat:\n")
+        + escape_md_v2("• chain: ")
+        + inline_code_md_v2(sess["chain"] or "—")
+        + escape_md_v2("\n• wallet_id: ")
+        + inline_code_md_v2(sess["wallet_id"] or "—"),
     )
 
 
@@ -74,7 +100,10 @@ async def cmd_session_clear(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         return
     chat_id = update.effective_chat.id
     clear_chat_session(context.application.bot_data, chat_id)
-    await update.message.reply_text("Session cleared (chain and wallet).")
+    await reply_user_text_markdown_v2_safe(
+        update.message,
+        raw_text="Session cleared (chain and wallet).",
+    )
 
 
 async def handle_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

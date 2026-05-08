@@ -26,6 +26,7 @@ from juno.telegram.approval_ui import (
     should_show_wallet_approval_keyboard,
 )
 from juno.telegram.errors import format_agent_error
+from juno.telegram.formatting import send_assistant_reply_html_safe
 from juno.telegram.messages import final_ai_content, messages_blob_for_approval
 from juno.telegram.parsing import extract_approval_correlation_id
 from juno.telegram.session import get_chat_session
@@ -143,9 +144,10 @@ async def execute_supervisor_turn(
                 chat_id,
                 trace_id,
             )
-            await application.bot.send_message(
+            await send_assistant_reply_html_safe(
+                application.bot,
                 chat_id=chat_id,
-                text=format_agent_error(exc),
+                raw_text=format_agent_error(exc),
                 reply_to_message_id=reply_to_message_id,
             )
             return
@@ -161,17 +163,19 @@ async def execute_supervisor_turn(
         set_last_approval_token(application.bot_data, chat_id, token)
         keyboard = mercury_approval_inline_keyboard()
         body = final_text if final_text.strip() else "Wallet approval required."
-        await application.bot.send_message(
+        await send_assistant_reply_html_safe(
+            application.bot,
             chat_id=chat_id,
-            text=body,
+            raw_text=body,
             reply_markup=keyboard,
             reply_to_message_id=reply_to_message_id,
         )
         return
 
-    await application.bot.send_message(
+    await send_assistant_reply_html_safe(
+        application.bot,
         chat_id=chat_id,
-        text=final_text if final_text.strip() else "(no reply)",
+        raw_text=final_text if final_text.strip() else "(no reply)",
         reply_to_message_id=reply_to_message_id,
     )
 
